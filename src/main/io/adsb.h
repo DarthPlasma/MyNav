@@ -66,3 +66,21 @@ adsbVehicleStatus_t* getAdsbStatus(void);
 adsbVehicleValues_t* getVehicleForFill(void);
 bool isEnvironmentOkForCalculatingADSBDistanceBearing(void);
 void recalculateVehicle(adsbVehicle_t* vehicle);
+
+typedef struct adsbConfig_s {
+    uint8_t maxVehicles;        // aircraft tracked at the same time, at most MAX_ADSB_VEHICLES
+} adsbConfig_t;
+
+PG_DECLARE(adsbConfig_t, adsbConfig);
+
+// Limits for picking the aircraft on a critical approach, see io/adsb_threat.h
+typedef struct adsbThreatLimits_s {
+    uint32_t maxDistanceCm;     // traffic farther than this is ignored
+    uint32_t maxAboveCm;        // traffic higher than this above us is ignored, 0 = no limit
+    uint16_t coneWidthCd;       // full width of the aircraft's approach cone
+    uint16_t maxToaSeconds;     // time-to-arrival limit
+} adsbThreatLimits_t;
+
+uint8_t getAdsbMaxVehicles(void);
+uint8_t getVehiclesWithinLimitsCount(uint32_t maxDistanceCm, uint32_t maxAboveCm);
+adsbVehicle_t *findVehicleThreat(const adsbThreatLimits_t *limits, uint32_t *toaSecondsOut);

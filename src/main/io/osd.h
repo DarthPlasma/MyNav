@@ -342,6 +342,9 @@ typedef enum {
     OSD_NAV_FW_ALT_CONTROL_RESPONSE,
     OSD_NAV_MIN_GROUND_SPEED,
     OSD_THROTTLE_GAUGE,
+    OSD_ADSB_CRITICAL_WARNING,  // 169
+    OSD_ADSB_CONE,              // 170
+    OSD_ADSB_STATUS,            // 171
     OSD_ITEM_COUNT // MUST BE LAST
 } osd_items_e;
 
@@ -536,6 +539,8 @@ typedef struct osdConfig_s {
     uint16_t                    adsb_distance_alert;                       // in metres
     uint16_t                    adsb_ignore_plane_above_me_limit;          // in metres
     osd_adsb_warning_style_e    adsb_warning_style;       // adsb warning element style, one or two lines
+    uint8_t                     adsb_detection_cone;      // full width of the aircraft's approach cone, degrees
+    uint16_t                    adsb_aircraft_toa;        // time-to-arrival limit for a critical approach, seconds
 #endif
     uint8_t  radar_peers_display_time;                  // in seconds
 #ifdef USE_GEOZONE

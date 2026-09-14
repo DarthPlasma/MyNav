@@ -362,6 +362,7 @@ main_sources(COMMON_SRC
     flight/adaptive_filter.h
 
     io/adsb.c
+    io/adsb_threat.c
     io/beeper.c
     io/beeper.h
     io/servo_sbus.c

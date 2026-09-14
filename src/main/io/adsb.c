@@ -27,6 +27,11 @@
 
 
 #include "adsb.h"
+#include "adsb_threat.h"
+
+#include "config/parameter_group_ids.h"
+
+#include "fc/settings.h"
 
 #include "navigation/navigation.h"
 #include "navigation/navigation_private.h"
@@ -55,7 +60,7 @@ adsbVehicleValues_t* getVehicleForFill(void){
 
 // use bsearch function
 adsbVehicle_t *findVehicleByIcao(uint32_t avicao) {
-    for (uint8_t i = 0; i < MAX_ADSB_VEHICLES; i++) {
+    for (uint8_t i = 0; i < getAdsbMaxVehicles(); i++) {
         if (avicao == adsbVehiclesList[i].vehicleValues.icao) {
             return &adsbVehiclesList[i];
         }
@@ -65,7 +70,7 @@ adsbVehicle_t *findVehicleByIcao(uint32_t avicao) {
 
 adsbVehicle_t *findVehicleFarthest(void) {
     adsbVehicle_t *adsbLocal = NULL;
-    for (uint8_t i = 0; i < MAX_ADSB_VEHICLES; i++) {
+    for (uint8_t i = 0; i < getAdsbMaxVehicles(); i++) {
         if (adsbVehiclesList[i].ttl > 0 && adsbVehiclesList[i].calculatedVehicleValues.valid && (adsbLocal == NULL || adsbLocal->calculatedVehicleValues.dist < adsbVehiclesList[i].calculatedVehicleValues.dist)) {
             adsbLocal = &adsbVehiclesList[i];
         }
@@ -75,7 +80,7 @@ adsbVehicle_t *findVehicleFarthest(void) {
 
 uint8_t getActiveVehiclesCount(void) {
     uint8_t total = 0;
-    for (uint8_t i = 0; i < MAX_ADSB_VEHICLES; i++) {
+    for (uint8_t i = 0; i < getAdsbMaxVehicles(); i++) {
         if (adsbVehiclesList[i].ttl > 0) {
             total++;
         }
@@ -85,7 +90,7 @@ uint8_t getActiveVehiclesCount(void) {
 
 adsbVehicle_t *findVehicleClosest(void) {
     adsbVehicle_t *adsbLocal = NULL;
-    for (uint8_t i = 0; i < MAX_ADSB_VEHICLES; i++) {
+    for (uint8_t i = 0; i < getAdsbMaxVehicles(); i++) {
         if (adsbVehiclesList[i].ttl > 0 && adsbVehiclesList[i].calculatedVehicleValues.valid && (adsbLocal == NULL || adsbLocal->calculatedVehicleValues.dist > adsbVehiclesList[i].calculatedVehicleValues.dist)) {
             adsbLocal = &adsbVehiclesList[i];
         }
@@ -119,7 +124,7 @@ adsbVehicle_t *findVehicleClosestLimit(int32_t maxVerticalDistance) {
     ////////////////////////////////////////////////////////////
 
     adsbVehicle_t *adsbLocal = NULL;
-    for (uint8_t i = 0; i < MAX_ADSB_VEHICLES; i++) {
+    for (uint8_t i = 0; i < getAdsbMaxVehicles(); i++) {
         if(adsbVehiclesList[i].ttl > 0 && adsbVehiclesList[i].calculatedVehicleValues.valid){
             if(adsbVehiclesList[i].calculatedVehicleValues.verticalDistance > 0 && maxVerticalDistance > 0 && adsbVehiclesList[i].calculatedVehicleValues.verticalDistance > maxVerticalDistance){
                 continue;
@@ -135,7 +140,7 @@ adsbVehicle_t *findVehicleClosestLimit(int32_t maxVerticalDistance) {
 
 adsbVehicle_t *findFreeSpaceInList(void) {
     //find expired first
-    for (uint8_t i = 0; i < MAX_ADSB_VEHICLES; i++) {
+    for (uint8_t i = 0; i < getAdsbMaxVehicles(); i++) {
         if (adsbVehiclesList[i].ttl == 0) {
             return &adsbVehiclesList[i];
         }
@@ -146,7 +151,7 @@ adsbVehicle_t *findFreeSpaceInList(void) {
 
 adsbVehicle_t *findVehicleNotCalculated(void) {
     //find expired first
-    for (uint8_t i = 0; i < MAX_ADSB_VEHICLES; i++) {
+    for (uint8_t i = 0; i < getAdsbMaxVehicles(); i++) {
         if (adsbVehiclesList[i].calculatedVehicleValues.valid == false) {
             return &adsbVehiclesList[i];
         }
@@ -253,11 +258,6 @@ void recalculateVehicle(adsbVehicle_t* vehicle){
     vehicle->calculatedVehicleValues.dist = calculateDistanceToDestination(&vehicleVector);
     vehicle->calculatedVehicleValues.dir = calculateBearingToDestination(&vehicleVector);
 
-    if (vehicle->calculatedVehicleValues.dist > ADSB_LIMIT_CM) {
-        vehicle->ttl = 0;
-        return;
-    }
-
     vehicle->calculatedVehicleValues.verticalDistance = vehicle->vehicleValues.alt - (int32_t)getEstimatedActualPosition(Z) - GPS_home.alt;
     vehicle->calculatedVehicleValues.valid = true;
 }
@@ -270,7 +270,7 @@ void adsbTtlClean(timeUs_t currentTimeUs) {
 
     if (adsbTtlSinceLastCleanServiced > 1000000) // 1s
     {
-        for (uint8_t i = 0; i < MAX_ADSB_VEHICLES; i++) {
+        for (uint8_t i = 0; i < getAdsbMaxVehicles(); i++) {
             if (adsbVehiclesList[i].ttl > 0) {
                 adsbVehiclesList[i].ttl--;
             }
@@ -294,6 +294,27 @@ bool isEnvironmentOkForCalculatingADSBDistanceBearing(void){
         #endif
         )
     );
+}
+
+PG_REGISTER_WITH_RESET_TEMPLATE(adsbConfig_t, adsbConfig, PG_ADSB_CONFIG, 0);
+
+PG_RESET_TEMPLATE(adsbConfig_t, adsbConfig,
+    .maxVehicles = SETTING_ADSB_MAX_VEHICLES_DEFAULT,
+);
+
+uint8_t getAdsbMaxVehicles(void)
+{
+    return MIN(adsbConfig()->maxVehicles, MAX_ADSB_VEHICLES);
+}
+
+uint8_t getVehiclesWithinLimitsCount(uint32_t maxDistanceCm, uint32_t maxAboveCm)
+{
+    return adsbCountVehiclesWithinLimits(adsbVehiclesList, getAdsbMaxVehicles(), maxDistanceCm, maxAboveCm);
+}
+
+adsbVehicle_t *findVehicleThreat(const adsbThreatLimits_t *limits, uint32_t *toaSecondsOut)
+{
+    return adsbFindThreat(adsbVehiclesList, getAdsbMaxVehicles(), limits, toaSecondsOut);
 }
 
 #endif

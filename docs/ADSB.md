@@ -26,6 +26,51 @@ OSD can be configured to simple view (one line) or to extended view (two lines) 
 
 ![ADSB OSD](assets/images/adsb-info.png)
 
+## MyNAV: critical approach warning and approach cone
+
+MyNAV adds three OSD elements. INAV Configurator does not know them: place them from the CLI with
+`osd_layout <layout> <item> <column> <row> V`.
+
+| Item | Element | Content |
+| --- | --- | --- |
+| 169 | `OSD_ADSB_CRITICAL_WARNING` | `AIRCRAFT APPROACHING 45S` |
+| 170 | `OSD_ADSB_CONE` | approach cone, 2 rows x 21 columns |
+| 171 | `OSD_ADSB_STATUS` | ADSB symbol, aircraft received / aircraft within limits |
+
+### Critical approach
+An aircraft is a critical threat when all of these hold:
+* it is within `osd_adsb_distance_warning` and, when `osd_adsb_ignore_plane_above_me_limit` is not 0, no higher than that above us (traffic below us is always considered)
+* it reports a valid heading and velocity
+* its course points at us within half of `osd_adsb_detection_cone` (full width, degrees)
+* its time to arrival, distance / its ground speed, is at most `osd_adsb_aircraft_toa` seconds
+
+When several aircraft qualify, the one arriving first is shown. A GPS fix with more than 4 satellites is required.
+
+### Approach cone
+The cone belongs to the approaching aircraft: its apex is the aircraft, its axis the aircraft's course.
+The element shows where we are inside it, as seen facing the aircraft: right on the scale is our right while facing it.
+
+```
+-10-------0-------+10
+       ^     +
+```
+* Row 1: the scale, +- half of `osd_adsb_detection_cone`; with the default 20 degrees it is 1 degree per column.
+* Arrow: our position now. It shows our course against the aircraft's: up = head-on, down = same course,
+  sideways = crossing towards that side. `H` while our heading is not valid.
+* Crosshair: our position in the same, current cone after flying for the time to arrival at our own velocity.
+  The aircraft's motion is not projected. An arrow on the edge means that position is outside the cone on that side.
+  It is hidden when it falls on the arrow, or while our heading is not valid.
+
+As the aircraft gets closer the same distance from its course becomes a wider angle, so unless we are right under
+its path our position slides towards the edge, until we leave the cone and the element disappears.
+
+The element is 21 columns wide: on 30 column analog OSDs place it at column 9 or less.
+
+### Status
+`<ADSB symbol>x/y`: x = aircraft received, y = aircraft within `osd_adsb_distance_warning` and
+`osd_adsb_ignore_plane_above_me_limit`. Up to `adsb_max_vehicles` aircraft are tracked; aircraft beyond 64 km are
+no longer dropped, when the list is full a closer aircraft replaces the farthest one.
+
 
 ## Hardware
 

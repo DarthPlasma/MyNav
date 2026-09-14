@@ -18,6 +18,18 @@
 
 #pragma once
 
+#ifdef TMOTORF7_AIO
+// MyNAV: T-Motor F7 AIO has the TMOTORF7 pins, with an MPU6500-family gyro and an SPI baro (Betaflight TMOTORF7_AIO)
+#define TMOTORF7
+#define USE_IMU_MPU6500
+#define IMU_MPU6500_ALIGN       CW0_DEG
+#define MPU6500_CS_PIN          PA4
+#define MPU6500_SPI_BUS         BUS_SPI1
+#define USE_BARO_DPS310
+#define DPS310_SPI_BUS          BUS_SPI3
+#define DPS310_CS_PIN           PC15
+#endif
+
 #ifdef TMOTORF7
 #define TARGET_BOARD_IDENTIFIER "TMR7"
 #define USBD_PRODUCT_STRING     "TMOTORF7"

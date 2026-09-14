@@ -132,7 +132,9 @@
 #define PG_GEOZONE_CONFIG 1042
 #define PG_GEOZONES 1043
 #define PG_GEOZONE_VERTICES 1044
-#define PG_INAV_END PG_GEOZONE_VERTICES
+// MyNAV: away from the upstream sequence, which reuses 1045+ in later releases
+#define PG_ADSB_CONFIG 1100
+#define PG_INAV_END PG_ADSB_CONFIG
 
 // OSD configuration (subject to change)
 //#define PG_OSD_FONT_CONFIG 2047

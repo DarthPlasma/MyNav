@@ -189,8 +189,7 @@
 //ADSB RECEIVER
 #ifdef USE_GPS
 #define USE_ADSB
-#define MAX_ADSB_VEHICLES               5
-#define ADSB_LIMIT_CM                   6400000
+#define MAX_ADSB_VEHICLES               12
 #endif
 
 #define USE_SERIAL_GIMBAL

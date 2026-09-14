@@ -3299,6 +3299,19 @@ groups:
         max: 255
         default_value: 1
 
+  - name: PG_ADSB_CONFIG
+    type: adsbConfig_t
+    headers: ["io/adsb.h"]
+    condition: USE_ADSB
+    members:
+      - name: adsb_max_vehicles
+        description: "Number of ADSB aircraft tracked at the same time. When the list is full, a closer aircraft replaces the farthest one"
+        default_value: 5
+        field: maxVehicles
+        min: 5
+        max: 12
+        type: uint8_t
+
   - name: PG_OSD_CONFIG
     type: osdConfig_t
     headers: ["io/osd.h", "drivers/osd.h"]
@@ -3690,6 +3703,22 @@ groups:
         field: adsb_warning_style
         type: uint8_t
         condition: USE_ADSB
+      - name: osd_adsb_detection_cone
+        description: "Full width in degrees of an ADSB aircraft's approach cone. The aircraft is a critical threat when its course points at us within half of this angle. It is also the scale of the OSD_ADSB_CONE element"
+        default_value: 20
+        condition: USE_ADSB
+        field: adsb_detection_cone
+        min: 2
+        max: 180
+        type: uint8_t
+      - name: osd_adsb_aircraft_toa
+        description: "Time to arrival in seconds (distance / aircraft ground speed) below which an ADSB aircraft pointing at us shows OSD_ADSB_CRITICAL_WARNING and OSD_ADSB_CONE"
+        default_value: 60
+        condition: USE_ADSB
+        field: adsb_aircraft_toa
+        min: 1
+        max: 600
+        type: uint16_t
       - name: osd_estimations_wind_compensation
         description: "Use wind estimation for remaining flight time/distance estimation"
         default_value: ON

@@ -90,7 +90,12 @@
  * Gyro
  */
 #define USE_IMU_ICM42605
+#ifdef SPEEDYBEEF405AIOV2
+// MyNAV: the V2 has the same pins as the V1 but its gyro is rotated (Betaflight SPEEDYBEEF405AIOV2: CW270)
+#define IMU_ICM42605_ALIGN      CW270_DEG
+#else
 #define IMU_ICM42605_ALIGN      CW180_DEG
+#endif
 #define ICM42605_CS_PIN         PA4
 #define ICM42605_SPI_BUS        BUS_SPI1
 
@@ -145,7 +150,16 @@
 #define WS2811_PIN                  PA8
 
 #define DEFAULT_FEATURES        (FEATURE_OSD | FEATURE_CURRENT_METER | FEATURE_VBAT | FEATURE_TX_PROF_SEL | FEATURE_BLACKBOX)
+#ifdef SPEEDYBEEF405AIOV2
+#define CURRENT_METER_SCALE     88
+// 9V BEC switch, on the USER1 mode as on Betaflight ("9V BEC OFF")
+#define USE_PINIO
+#define USE_PINIOBOX
+#define PINIO1_PIN              PC14
+#define PINIO1_FLAGS            PINIO_FLAGS_INVERTED
+#else
 #define CURRENT_METER_SCALE     254
+#endif
 #define CURRENT_METER_OFFSET    0
 
 #define USE_SERIAL_4WAY_BLHELI_INTERFACE

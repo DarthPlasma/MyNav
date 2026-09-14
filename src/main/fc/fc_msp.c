@@ -1022,7 +1022,7 @@ static bool mspFcProcessOutCommand(uint16_t cmdMSP, sbuf_t *dst, mspPostProcessF
 #endif
     case MSP2_ADSB_VEHICLE_LIST:
 #ifdef USE_ADSB
-        sbufWriteU8(dst, MAX_ADSB_VEHICLES);
+        sbufWriteU8(dst, getAdsbMaxVehicles());
         sbufWriteU8(dst, ADSB_CALL_SIGN_MAX_LENGTH);
         sbufWriteU32(dst, getAdsbStatus()->vehiclesMessagesTotal);
         sbufWriteU32(dst, getAdsbStatus()->heartbeatMessagesTotal);

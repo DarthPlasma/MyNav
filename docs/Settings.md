@@ -192,6 +192,16 @@ Calculated value after '6 position avanced calibration'. See Wiki page.
 
 ---
 
+### adsb_max_vehicles
+
+Number of ADSB aircraft tracked at the same time. When the list is full, a closer aircraft replaces the farthest one
+
+| Default | Min | Max |
+| --- | --- | --- |
+| 5 | 5 | 12 |
+
+---
+
 ### ahrs_acc_ignore_rate
 
 Total gyro rotation rate threshold [deg/s] before scaling to consider accelerometer trustworthy
@@ -4479,6 +4489,26 @@ Optical flow module scale factor
 | Default | Min | Max |
 | --- | --- | --- |
 | 10.5 | 0 | 10000 |
+
+---
+
+### osd_adsb_aircraft_toa
+
+Time to arrival in seconds (distance / aircraft ground speed) below which an ADSB aircraft pointing at us shows OSD_ADSB_CRITICAL_WARNING and OSD_ADSB_CONE
+
+| Default | Min | Max |
+| --- | --- | --- |
+| 60 | 1 | 600 |
+
+---
+
+### osd_adsb_detection_cone
+
+Full width in degrees of an ADSB aircraft's approach cone. The aircraft is a critical threat when its course points at us within half of this angle. It is also the scale of the OSD_ADSB_CONE element
+
+| Default | Min | Max |
+| --- | --- | --- |
+| 20 | 2 | 180 |
 
 ---
 

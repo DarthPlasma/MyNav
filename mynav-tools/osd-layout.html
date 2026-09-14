@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MyNAV — OSD Layout Tool</title>
+<style>
+  :root { --bg:#12151c; --panel:#1b2029; --line:#2c333f; --fg:#e6e9ef; --muted:#8b93a3;
+          --accent:#4ea1ff; --cell:#0c0f15; --cellGrid:#1f2530; --own:#a7c7ff; --ovl:#ff5d5d; --sel:#ffd23f; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:14px/1.4 -apple-system,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--fg); }
+  header { padding:14px 18px; border-bottom:1px solid var(--line); }
+  header h1 { margin:0; font-size:16px; } header p { margin:4px 0 0; color:var(--muted); font-size:12px; }
+  main { display:grid; grid-template-columns:1fr 360px; gap:16px; padding:16px; align-items:start; }
+  @media (max-width:900px){ main{ grid-template-columns:1fr; } }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:12px; }
+  .panel h2 { margin:0 0 10px; font-size:13px; color:var(--muted); text-transform:uppercase; letter-spacing:.05em; }
+  label { color:var(--muted); font-size:12px; } select,input,button,textarea { font-family:inherit; }
+  select,input[type=number],input[type=text] { background:var(--cell); color:var(--fg); border:1px solid var(--line);
+     border-radius:5px; padding:5px 7px; }
+  input[type=number]{ width:58px; } button { background:var(--accent); color:#04101f; border:0; border-radius:5px;
+     padding:6px 11px; cursor:pointer; font-weight:600; } button.ghost{ background:var(--cellGrid); color:var(--fg); }
+  button:hover{ filter:brightness(1.08); } textarea { width:100%; background:var(--cell); color:var(--fg);
+     border:1px solid var(--line); border-radius:6px; padding:9px; resize:vertical; font-family:ui-monospace,Menlo,Consolas,monospace; font-size:12px; }
+  .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:10px; }
+  /* grid */
+  #gridWrap { overflow:auto; border:1px solid var(--line); border-radius:6px; background:#000; padding:8px; }
+  #grid { display:grid; font-family:ui-monospace,Menlo,Consolas,monospace; font-size:13px; line-height:1; width:max-content;
+          background-size:100% 100%; background-repeat:no-repeat; background-position:center; }
+  .gc { width:15px; height:20px; display:flex; align-items:center; justify-content:center; color:#39424f;
+        background:transparent; border-right:1px solid rgba(255,255,255,.05); border-bottom:1px solid rgba(255,255,255,.05); user-select:none; cursor:crosshair; }
+  .gc.own { color:var(--own); background:rgba(13,24,38,.72); } .gc.ovl { color:#fff; background:rgba(255,93,93,.85); }
+  .gc.sel { outline:1px solid var(--sel); outline-offset:-1px; }
+  .gc:hover { background:#182234; }
+  /* element list */
+  .el { border:1px solid var(--line); border-radius:6px; padding:8px; margin-bottom:8px; }
+  .el.selected { border-color:var(--sel); box-shadow:0 0 0 1px var(--sel) inset; }
+  .el .name { font-family:ui-monospace,monospace; font-size:12px; color:var(--accent); cursor:pointer; word-break:break-all; }
+  .el .name small { color:var(--muted); }
+  .el .ctrls { display:flex; gap:8px; align-items:center; margin-top:6px; flex-wrap:wrap; }
+  .chk { display:flex; gap:3px; align-items:center; color:var(--muted); font-size:12px; }
+  .del { background:transparent; color:var(--ovl); padding:2px 6px; font-weight:700; }
+  .hint { color:var(--muted); font-size:12px; margin:6px 0 0; }
+  code { background:var(--cellGrid); padding:1px 5px; border-radius:4px; }
+  a { color:var(--accent); }
+  /* element preview */
+  .osdprev { background:#070a0f; border:1px solid var(--line); border-radius:6px; padding:6px 10px; }
+  .pv { display:flex; justify-content:space-between; align-items:center; gap:10px; padding:5px 0; border-bottom:1px solid rgba(255,255,255,.04); }
+  .pv:last-child { border-bottom:0; }
+  .pv .lbl { color:var(--muted); font-size:12px; }
+  .pv .val { font-family:ui-monospace,Menlo,Consolas,monospace; font-size:14px; color:#bcd8ff; letter-spacing:.5px;
+             display:inline-flex; align-items:center; gap:1px; white-space:pre; }
+  .pv .val svg { display:inline-block; }
+</style>
+</head>
+<body>
+<header>
+  <h1>MyNAV — OSD Layout Tool</h1>
+  <p>Paste an INAV <code>diff</code> / <code>dump</code>, arrange the elements of each layout visually, copy the <code>osd_layout</code> lines back into the CLI.
+     Lines are <code>osd_layout &lt;layout&gt; &lt;item&gt; &lt;column&gt; &lt;row&gt; &lt;V|H&gt;</code>, as printed by <code>src/main/fc/cli.c</code>.</p>
+</header>
+
+<main>
+  <section>
+    <div class="panel">
+      <div class="row">
+        <label>Video system</label>
+        <select id="preset">
+          <option value="30,16">Analog PAL — 30×16</option>
+          <option value="30,13">Analog NTSC — 30×13</option>
+          <option value="50,18">HDZero — 50×18</option>
+          <option value="53,20" selected>DJI O3/O4, Walksnail Avatar, DJI compat HD — 53×20</option>
+          <option value="60,22">WTF-OS (DJI FPV) — 60×22</option>
+          <option value="custom">Custom…</option>
+        </select>
+        <span id="customDims" style="display:none">
+          <label>cols</label><input type="number" id="cols" min="1" max="64" value="53">
+          <label>rows</label><input type="number" id="rows" min="1" max="64" value="20">
+        </span>
+        <label>Layout</label>
+        <select id="layout"><option value="0">0 (main)</option><option value="1">1</option><option value="2">2</option><option value="3">3</option></select>
+      </div>
+      <div class="row">
+        <label>Background</label>
+        <input type="file" id="bgImage" accept="image/*">
+        <label>Dim</label>
+        <input type="range" id="bgDim" min="0" max="90" value="35" style="width:110px">
+        <button class="ghost" id="bgClear">Clear</button>
+      </div>
+      <div id="gridWrap"><div id="grid"></div></div>
+      <p class="hint">Select an element on the right, then click a grid cell to move its top-left there. Red = overlap. Hidden elements (H) are not drawn.</p>
+    </div>
+
+    <div class="panel" style="margin-top:16px">
+      <h2>Paste CLI (diff / dump)</h2>
+      <textarea id="input" rows="6" placeholder="osd_layout 0 1 2 1 V&#10;osd_layout 0 169 3 6 V&#10;..."></textarea>
+      <div class="row" style="margin-top:8px">
+        <button id="parseBtn">Parse</button>
+        <button class="ghost" id="loadSample">Load sample</button>
+      </div>
+    </div>
+  </section>
+
+  <aside>
+    <div class="panel">
+      <h2>Output — paste into CLI</h2>
+      <textarea id="output" rows="8" readonly></textarea>
+      <div class="row" style="margin-top:8px"><button id="copyBtn">Copy</button></div>
+      <p class="hint">All layouts are written, then run <code>save</code>. The iNAV Configurator does not know items 169 and up: position them from here or from the CLI.</p>
+    </div>
+
+    <div class="panel" style="margin-top:16px">
+      <h2>Elements in this layout</h2>
+      <div class="row">
+        <input type="text" id="addName" placeholder="OSD_... or item number" list="known" style="flex:1">
+        <datalist id="known"></datalist>
+        <button id="addBtn">Add</button>
+      </div>
+      <div class="hint">Quick add: <a href="#" data-add="OSD_ADSB_CRITICAL_WARNING" class="qa">critical warning</a> · <a href="#" data-add="OSD_ADSB_CONE" class="qa">cone</a> · <a href="#" data-add="OSD_ADSB_STATUS" class="qa">status</a></div>
+      <div id="elList" style="margin-top:10px"></div>
+    </div>
+
+    <div class="panel" style="margin-top:16px">
+      <h2>ADS-B elements (examples)</h2>
+      <div id="preview" class="osdprev"></div>
+      <p class="hint">Approximate glyphs (the goggle's OSD font differs). Text is all caps on purpose: lowercase letters are symbols in the INAV font.</p>
+    </div>
+  </aside>
+</main>
+
+<script>
+// OSD_ITEMS_BEGIN: generated by update-osd-items.py from src/main/io/osd.h, do not edit
+const OSD_ITEMS = [
+  "OSD_RSSI_VALUE", // 0
+  "OSD_MAIN_BATT_VOLTAGE", // 1
+  "OSD_CROSSHAIRS", // 2
+  "OSD_ARTIFICIAL_HORIZON", // 3
+  "OSD_HORIZON_SIDEBARS", // 4
+  "OSD_ONTIME", // 5
+  "OSD_FLYTIME", // 6
+  "OSD_FLYMODE", // 7
+  "OSD_CRAFT_NAME", // 8
+  "OSD_THROTTLE_POS", // 9
+  "OSD_VTX_CHANNEL", // 10
+  "OSD_CURRENT_DRAW", // 11
+  "OSD_MAH_DRAWN", // 12
+  "OSD_GPS_SPEED", // 13
+  "OSD_GPS_SATS", // 14
+  "OSD_ALTITUDE", // 15
+  "OSD_ROLL_PIDS", // 16
+  "OSD_PITCH_PIDS", // 17
+  "OSD_YAW_PIDS", // 18
+  "OSD_POWER", // 19
+  "OSD_GPS_LON", // 20
+  "OSD_GPS_LAT", // 21
+  "OSD_HOME_DIR", // 22
+  "OSD_HOME_DIST", // 23
+  "OSD_HEADING", // 24
+  "OSD_VARIO", // 25
+  "OSD_VERTICAL_SPEED_INDICATOR", // 26
+  "OSD_AIR_SPEED", // 27
+  "OSD_ONTIME_FLYTIME", // 28
+  "OSD_RTC_TIME", // 29
+  "OSD_MESSAGES", // 30
+  "OSD_GPS_HDOP", // 31
+  "OSD_MAIN_BATT_CELL_VOLTAGE", // 32
+  "OSD_SCALED_THROTTLE_POS", // 33
+  "OSD_HEADING_GRAPH", // 34
+  "OSD_EFFICIENCY_MAH_PER_KM", // 35
+  "OSD_WH_DRAWN", // 36
+  "OSD_BATTERY_REMAINING_CAPACITY", // 37
+  "OSD_BATTERY_REMAINING_PERCENT", // 38
+  "OSD_EFFICIENCY_WH_PER_KM", // 39
+  "OSD_TRIP_DIST", // 40
+  "OSD_ATTITUDE_PITCH", // 41
+  "OSD_ATTITUDE_ROLL", // 42
+  "OSD_MAP_NORTH", // 43
+  "OSD_MAP_TAKEOFF", // 44
+  "OSD_RADAR", // 45
+  "OSD_WIND_SPEED_HORIZONTAL", // 46
+  "OSD_WIND_SPEED_VERTICAL", // 47
+  "OSD_REMAINING_FLIGHT_TIME_BEFORE_RTH", // 48
+  "OSD_REMAINING_DISTANCE_BEFORE_RTH", // 49
+  "OSD_HOME_HEADING_ERROR", // 50
+  "OSD_COURSE_HOLD_ERROR", // 51
+  "OSD_COURSE_HOLD_ADJUSTMENT", // 52
+  "OSD_SAG_COMPENSATED_MAIN_BATT_VOLTAGE", // 53
+  "OSD_MAIN_BATT_SAG_COMPENSATED_CELL_VOLTAGE", // 54
+  "OSD_POWER_SUPPLY_IMPEDANCE", // 55
+  "OSD_LEVEL_PIDS", // 56
+  "OSD_POS_XY_PIDS", // 57
+  "OSD_POS_Z_PIDS", // 58
+  "OSD_VEL_XY_PIDS", // 59
+  "OSD_VEL_Z_PIDS", // 60
+  "OSD_HEADING_P", // 61
+  "OSD_BOARD_ALIGN_ROLL", // 62
+  "OSD_BOARD_ALIGN_PITCH", // 63
+  "OSD_RC_EXPO", // 64
+  "OSD_RC_YAW_EXPO", // 65
+  "OSD_THROTTLE_EXPO", // 66
+  "OSD_PITCH_RATE", // 67
+  "OSD_ROLL_RATE", // 68
+  "OSD_YAW_RATE", // 69
+  "OSD_MANUAL_RC_EXPO", // 70
+  "OSD_MANUAL_RC_YAW_EXPO", // 71
+  "OSD_MANUAL_PITCH_RATE", // 72
+  "OSD_MANUAL_ROLL_RATE", // 73
+  "OSD_MANUAL_YAW_RATE", // 74
+  "OSD_NAV_FW_CRUISE_THR", // 75
+  "OSD_NAV_FW_PITCH2THR", // 76
+  "OSD_FW_MIN_THROTTLE_DOWN_PITCH_ANGLE", // 77
+  "OSD_DEBUG", // 78
+  "OSD_FW_ALT_PID_OUTPUTS", // 79
+  "OSD_FW_POS_PID_OUTPUTS", // 80
+  "OSD_MC_VEL_X_PID_OUTPUTS", // 81
+  "OSD_MC_VEL_Y_PID_OUTPUTS", // 82
+  "OSD_MC_VEL_Z_PID_OUTPUTS", // 83
+  "OSD_MC_POS_XYZ_P_OUTPUTS", // 84
+  "OSD_3D_SPEED", // 85
+  "OSD_IMU_TEMPERATURE", // 86
+  "OSD_BARO_TEMPERATURE", // 87
+  "OSD_TEMP_SENSOR_0_TEMPERATURE", // 88
+  "OSD_TEMP_SENSOR_1_TEMPERATURE", // 89
+  "OSD_TEMP_SENSOR_2_TEMPERATURE", // 90
+  "OSD_TEMP_SENSOR_3_TEMPERATURE", // 91
+  "OSD_TEMP_SENSOR_4_TEMPERATURE", // 92
+  "OSD_TEMP_SENSOR_5_TEMPERATURE", // 93
+  "OSD_TEMP_SENSOR_6_TEMPERATURE", // 94
+  "OSD_TEMP_SENSOR_7_TEMPERATURE", // 95
+  "OSD_ALTITUDE_MSL", // 96
+  "OSD_PLUS_CODE", // 97
+  "OSD_MAP_SCALE", // 98
+  "OSD_MAP_REFERENCE", // 99
+  "OSD_GFORCE", // 100
+  "OSD_GFORCE_X", // 101
+  "OSD_GFORCE_Y", // 102
+  "OSD_GFORCE_Z", // 103
+  "OSD_RC_SOURCE", // 104
+  "OSD_VTX_POWER", // 105
+  "OSD_ESC_RPM", // 106
+  "OSD_ESC_TEMPERATURE", // 107
+  "OSD_AZIMUTH", // 108
+  "OSD_RSSI_DBM", // 109
+  "OSD_LQ_UPLINK", // 110
+  "OSD_SNR_DB", // 111
+  "OSD_TX_POWER_UPLINK", // 112
+  "OSD_GVAR_0", // 113
+  "OSD_GVAR_1", // 114
+  "OSD_GVAR_2", // 115
+  "OSD_GVAR_3", // 116
+  "OSD_TPA", // 117
+  "OSD_NAV_FW_CONTROL_SMOOTHNESS", // 118
+  "OSD_VERSION", // 119
+  "OSD_RANGEFINDER", // 120
+  "OSD_PLIMIT_REMAINING_BURST_TIME", // 121
+  "OSD_PLIMIT_ACTIVE_CURRENT_LIMIT", // 122
+  "OSD_PLIMIT_ACTIVE_POWER_LIMIT", // 123
+  "OSD_GLIDESLOPE", // 124
+  "OSD_GPS_MAX_SPEED", // 125
+  "OSD_3D_MAX_SPEED", // 126
+  "OSD_AIR_MAX_SPEED", // 127
+  "OSD_ACTIVE_PROFILE", // 128
+  "OSD_MISSION", // 129
+  "OSD_SWITCH_INDICATOR_0", // 130
+  "OSD_SWITCH_INDICATOR_1", // 131
+  "OSD_SWITCH_INDICATOR_2", // 132
+  "OSD_SWITCH_INDICATOR_3", // 133
+  "OSD_TPA_TIME_CONSTANT", // 134
+  "OSD_FW_LEVEL_TRIM", // 135
+  "OSD_GLIDE_TIME_REMAINING", // 136
+  "OSD_GLIDE_RANGE", // 137
+  "OSD_CLIMB_EFFICIENCY", // 138
+  "OSD_NAV_WP_MULTI_MISSION_INDEX", // 139
+  "OSD_GROUND_COURSE", // 140
+  "OSD_CROSS_TRACK_ERROR", // 141
+  "OSD_PILOT_NAME", // 142
+  "OSD_PAN_SERVO_CENTRED", // 143
+  "OSD_MULTI_FUNCTION", // 144
+  "OSD_ODOMETER", // 145
+  "OSD_PILOT_LOGO", // 146
+  "OSD_CUSTOM_ELEMENT_1", // 147
+  "OSD_CUSTOM_ELEMENT_2", // 148
+  "OSD_CUSTOM_ELEMENT_3", // 149
+  "OSD_ADSB_WARNING", // 150
+  "OSD_ADSB_INFO", // 151
+  "OSD_BLACKBOX", // 152
+  "OSD_FORMATION_FLIGHT", // 153
+  "OSD_CUSTOM_ELEMENT_4", // 154
+  "OSD_CUSTOM_ELEMENT_5", // 155
+  "OSD_CUSTOM_ELEMENT_6", // 156
+  "OSD_CUSTOM_ELEMENT_7", // 157
+  "OSD_CUSTOM_ELEMENT_8", // 158
+  "OSD_LQ_DOWNLINK", // 159
+  "OSD_RX_POWER_DOWNLINK", // 160
+  "OSD_RX_BAND", // 161
+  "OSD_RX_MODE", // 162
+  "OSD_COURSE_TO_FENCE", // 163
+  "OSD_H_DIST_TO_FENCE", // 164
+  "OSD_V_DIST_TO_FENCE", // 165
+  "OSD_NAV_FW_ALT_CONTROL_RESPONSE", // 166
+  "OSD_NAV_MIN_GROUND_SPEED", // 167
+  "OSD_THROTTLE_GAUGE", // 168
+  "OSD_ADSB_CRITICAL_WARNING", // 169
+  "OSD_ADSB_CONE", // 170
+  "OSD_ADSB_STATUS", // 171
+];
+// OSD_ITEMS_END
+
+const LAYOUT_COUNT = 4;       // OSD_ALTERNATE_LAYOUT_COUNT + 1
+const POS_MAX = 63;           // columns and rows are 6 bits (OSD_POS in osd.h)
+
+// OSD glyphs approximated as inline SVG; text values are exact.
+const GLYPH_SVG = {
+  volt:'<svg width="8" height="14" viewBox="0 0 8 14" fill="currentColor"><path d="M4.9 0 0 8h2.9L2 14l6-8.6H4.2L4.9 0Z"/></svg>',
+  batt:'<svg width="14" height="9" viewBox="0 0 14 9" fill="none" stroke="currentColor" stroke-width="1"><rect x="0.5" y="0.5" width="11" height="8" rx="1"/><rect x="12" y="3" width="2" height="3" fill="currentColor" stroke="none"/><rect x="2" y="2" width="6" height="5" fill="currentColor" stroke="none"/></svg>',
+  amp:'<svg width="10" height="14" viewBox="0 0 10 14" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round"><path d="M1 13 5 1l4 12M2.5 9h5"/></svg>',
+  sat:'<svg width="14" height="12" viewBox="0 0 14 12" fill="currentColor"><g transform="rotate(45 7 6)"><rect x="5.5" y="4.5" width="3" height="3"/><rect x="1.2" y="5" width="3.3" height="2"/><rect x="9.5" y="5" width="3.3" height="2"/></g></svg>',
+  home:'<svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1" stroke-linejoin="round"><path d="M1 5.5 6 1l5 4.5M2.5 5V10.5h7V5"/></svg>',
+  arrow:'<svg width="11" height="13" viewBox="0 0 11 13" fill="currentColor"><path d="M5.5 0 10 5.5H7V13H4V5.5H1z"/></svg>',
+  alt:'<svg width="11" height="14" viewBox="0 0 11 14" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linejoin="round" stroke-linecap="round"><path d="M5.5 2v8.5M2.6 4.9 5.5 2l2.9 2.9M1 12.5h9"/></svg>',
+  radar:'<svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1"><circle cx="6" cy="6" r="5"/><circle cx="6" cy="6" r="2.5"/><path d="M6 6 9.6 2.4"/><circle cx="6" cy="6" r="0.9" fill="currentColor" stroke="none"/></svg>',
+  cross:'<svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M5.5 0v4M5.5 7v4M0 5.5h4M7 5.5h4"/></svg>',
+};
+// single-cell glyph markers embedded in sample strings (private-use code points, 1 char = 1 cell)
+const GV='', GB='', GA='', GS='', GH='', GR='', GL='', GX='', GC='';
+const GLYPHS = { [GV]:GLYPH_SVG.volt, [GB]:GLYPH_SVG.batt, [GA]:GLYPH_SVG.amp, [GS]:GLYPH_SVG.sat, [GH]:GLYPH_SVG.home,
+                 [GR]:GLYPH_SVG.arrow, [GL]:GLYPH_SVG.alt, [GX]:GLYPH_SVG.radar, [GC]:GLYPH_SVG.cross };
+
+// Representative sample text so footprints and overlaps are visible. Unknown elements get a label from the name.
+const SAMPLES = {
+  OSD_RSSI_VALUE:"99", OSD_MAIN_BATT_VOLTAGE: GB+"16.8"+GV, OSD_MAIN_BATT_CELL_VOLTAGE: GB+"4.20"+GV,
+  OSD_CRAFT_NAME:"CRAFTNAME", OSD_PILOT_NAME:"PILOTNAME", OSD_FLYMODE:"ANGL", OSD_CURRENT_DRAW:"12.4"+GA,
+  OSD_MAH_DRAWN:"1234", OSD_GPS_SPEED:"45", OSD_GPS_SATS: GS+"12", OSD_ALTITUDE: GL+"123",
+  OSD_HOME_DIR: GR, OSD_HOME_DIST: GH+"1.2", OSD_HEADING:"123", OSD_THROTTLE_POS:"35",
+  OSD_ONTIME:"12:34", OSD_FLYTIME:"12:34", OSD_MESSAGES:"LANDING", OSD_GPS_LAT:"47.12345", OSD_GPS_LON:"9.56789",
+  OSD_ADSB_WARNING: GX+"2.3K"+GR+"150",
+  OSD_ADSB_INFO: GX+"5",
+  OSD_ADSB_CRITICAL_WARNING:"AIRCRAFT APPROACHING 45S",
+  OSD_ADSB_STATUS: GX+"5/2",
+};
+
+// Multi-cell elements: relative cells [{dx,dy,ch}] instead of a single-row string.
+const MULTICELL = {
+  // Approach cone of the aircraft: row 0 = scale, row 1 = us now (arrow) and us after the time to arrival (crosshair).
+  // Left-anchored, 21 x 2. Sample: arrow just right of the centre, crosshair further right.
+  OSD_ADSB_CONE: () => {
+    const cells = [..."-10-------0-------+10"].map((ch,i)=>({dx:i, dy:0, ch}));
+    cells.push({dx:11, dy:1, ch:GR});
+    cells.push({dx:14, dy:1, ch:GC});
+    return cells;
+  },
+};
+
+function itemName(item){ return OSD_ITEMS[item] || `ITEM_${item}`; }
+function elementCells(entry){
+  const name = itemName(entry.item);
+  if (MULTICELL[name]) return MULTICELL[name](entry);
+  return [...sampleFor(name)].map((ch,i)=>({dx:i, dy:0, ch}));
+}
+function sampleFor(name){
+  if (SAMPLES[name]) return SAMPLES[name];
+  return name.replace(/^OSD_/,'').slice(0,12) || "EL";
+}
+
+let entries = [];    // { layout, item, x, y, visible }
+let selected = null; // item number, in the selected layout
+let COLS = 53, ROWS = 20;
+
+const $ = id => document.getElementById(id);
+const clamp = (v,a,b)=>Math.max(a,Math.min(b,v|0));
+const currentLayout = () => +$('layout').value;
+const layoutEntries = () => entries.filter(e=>e.layout===currentLayout());
+
+function readDims(){
+  const p = $('preset').value;
+  if (p === 'custom'){ COLS = clamp(+$('cols').value,1,64); ROWS = clamp(+$('rows').value,1,64); }
+  else { const [c,r] = p.split(','); COLS = +c; ROWS = +r; }
+}
+
+function parseCLI(text){
+  const re = /^\s*osd_layout\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+([VH])\s*$/gim;
+  const found = new Map(); let m; let skipped = 0;
+  while ((m = re.exec(text)) !== null){
+    const layout = +m[1], item = +m[2], x = +m[3], y = +m[4];
+    if (layout >= LAYOUT_COUNT || x > POS_MAX || y > POS_MAX) { skipped++; continue; }
+    found.set(`${layout}:${item}`, { layout, item, x, y, visible: m[5].toUpperCase()==='V' });
+  }
+  if (!found.size) { alert("No osd_layout lines found in the pasted text."); return; }
+  entries = [...found.values()]; selected = null;
+  const unknown = entries.filter(e=>e.item>=OSD_ITEMS.length).length;
+  if (unknown) alert(`${unknown} line(s) use item numbers this tool does not know: the firmware is newer than the table (run update-osd-items.py).`);
+  if (skipped) alert(`${skipped} line(s) out of range were ignored.`);
+  render();
+}
+
+function render(){ readDims(); renderGrid(); renderList(); renderOutput(); }
+
+function renderGrid(){
+  const grid = $('grid');
+  grid.style.gridTemplateColumns = `repeat(${COLS}, 15px)`;
+  const owner = Array.from({length:ROWS},()=>Array(COLS).fill(null));
+  const ovl = Array.from({length:ROWS},()=>Array(COLS).fill(false));
+  for (const entry of layoutEntries()){
+    if (!entry.visible) continue;
+    for (const c of elementCells(entry)){
+      const cx = entry.x + c.dx, cy = entry.y + c.dy;
+      if (cx<0||cx>=COLS||cy<0||cy>=ROWS) continue;
+      if (owner[cy][cx] !== null && owner[cy][cx].item !== entry.item) ovl[cy][cx] = true;
+      owner[cy][cx] = { item:entry.item, ch:c.ch };
+    }
+  }
+  let html = '';
+  for (let y=0;y<ROWS;y++) for (let x=0;x<COLS;x++){
+    const o = owner[y][x]; const isSel = o && o.item===selected;
+    const cls = 'gc' + (o? (ovl[y][x]?' ovl':' own'):'') + (isSel?' sel':'');
+    const content = !o ? '·' : (GLYPHS[o.ch] || escapeHtml(o.ch));
+    html += `<div class="${cls}" data-x="${x}" data-y="${y}">${content}</div>`;
+  }
+  grid.innerHTML = html;
+}
+const escapeHtml = c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]||c);
+
+function renderList(){
+  const wrap = $('elList');
+  wrap.innerHTML = '';
+  layoutEntries().sort((a,b)=>a.item-b.item).forEach(entry=>{
+    const div = document.createElement('div');
+    div.className = 'el' + (entry.item===selected?' selected':'');
+    div.innerHTML =
+      `<div class="name">${itemName(entry.item)} <small>#${entry.item}</small></div>
+       <div class="ctrls">
+         <label>X</label><input type="number" min="0" max="${POS_MAX}" value="${entry.x}" data-f="x">
+         <label>Y</label><input type="number" min="0" max="${POS_MAX}" value="${entry.y}" data-f="y">
+         <span class="chk"><input type="checkbox" data-f="v" ${entry.visible?'checked':''}>visible</span>
+         <button class="del" title="remove from the output">×</button>
+       </div>`;
+    div.querySelector('.name').onclick = ()=>{ selected = (selected===entry.item?null:entry.item); render(); };
+    div.querySelectorAll('input').forEach(inp=>{
+      inp.onchange = ()=>{
+        const f = inp.dataset.f;
+        if (f==='x') entry.x = clamp(+inp.value,0,POS_MAX);
+        else if (f==='y') entry.y = clamp(+inp.value,0,POS_MAX);
+        else if (f==='v') entry.visible = inp.checked;
+        render();
+      };
+    });
+    div.querySelector('.del').onclick = ()=>{ entries = entries.filter(e=>e!==entry); if(selected===entry.item) selected=null; render(); };
+    if (!entry.visible) div.style.opacity = .55;
+    wrap.appendChild(div);
+  });
+}
+
+function renderOutput(){
+  $('output').value = entries.slice().sort((a,b)=>a.layout-b.layout || a.item-b.item)
+    .map(e=>`osd_layout ${e.layout} ${e.item} ${e.x} ${e.y} ${e.visible?'V':'H'}`).join('\n');
+}
+
+function addElement(text){
+  if (!text) return;
+  let item = /^\d+$/.test(text) ? +text : OSD_ITEMS.indexOf(text.toUpperCase());
+  if (item < 0 || item >= OSD_ITEMS.length){ alert("Unknown OSD element: " + text); return; }
+  const layout = currentLayout();
+  if (!entries.some(e=>e.layout===layout && e.item===item)) entries.push({ layout, item, x:1, y:1, visible:true });
+  selected = item; $('addName').value = ''; render();
+}
+
+// ---- interactions ----
+$('grid').addEventListener('click', e=>{
+  const c = e.target.closest('.gc'); if (!c || selected===null) return;
+  const entry = layoutEntries().find(x=>x.item===selected); if (!entry) return;
+  entry.x = +c.dataset.x; entry.y = +c.dataset.y; entry.visible = true;
+  render();
+});
+$('preset').onchange = ()=>{ $('customDims').style.display = $('preset').value==='custom'?'inline':'none'; render(); };
+$('cols').onchange = $('rows').onchange = render;
+$('layout').onchange = ()=>{ selected = null; render(); };
+
+// Optional background image (e.g. a still from the FPV feed) to judge the layout against real video.
+let bgDataUrl = null;
+function applyBg(){
+  const grid = $('grid');
+  if (!bgDataUrl) { grid.style.backgroundImage = 'none'; return; }
+  const dim = (+$('bgDim').value) / 100;
+  grid.style.backgroundImage = `linear-gradient(rgba(0,0,0,${dim}),rgba(0,0,0,${dim})), url("${bgDataUrl}")`;
+}
+$('bgImage').addEventListener('change', e=>{
+  const file = e.target.files && e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => { bgDataUrl = ev.target.result; applyBg(); };
+  reader.readAsDataURL(file);
+});
+$('bgDim').addEventListener('input', applyBg);
+$('bgClear').addEventListener('click', ()=>{ bgDataUrl = null; $('bgImage').value = ''; applyBg(); });
+$('parseBtn').onclick = ()=>parseCLI($('input').value);
+$('addBtn').onclick = ()=>addElement($('addName').value.trim());
+$('addName').addEventListener('keydown', e=>{ if(e.key==='Enter') addElement($('addName').value.trim()); });
+document.querySelectorAll('.qa').forEach(a=>a.onclick = e=>{ e.preventDefault(); addElement(a.dataset.add); });
+$('copyBtn').onclick = ()=>{ $('output').select(); document.execCommand('copy'); $('copyBtn').textContent='Copied!'; setTimeout(()=>$('copyBtn').textContent='Copy',1200); };
+$('loadSample').onclick = ()=>{ $('input').value =
+`osd_layout 0 1 2 1 V
+osd_layout 0 150 2 3 V
+osd_layout 0 151 2 4 V
+osd_layout 0 169 16 2 V
+osd_layout 0 170 16 4 V
+osd_layout 0 171 8 4 V`; parseCLI($('input').value); };
+$('known').innerHTML = OSD_ITEMS.map(n=>`<option value="${n}">`).join('');
+
+// ---- ADS-B element examples ----
+function buildPreview(){
+  const cell = s => [...s].map(ch=>GLYPHS[ch] || escapeHtml(ch)).join('');
+  const rows = [
+    ['Critical warning #169', 'AIRCRAFT APPROACHING 45S'],
+    ['Cone #170, scale',      '-10-------0-------+10'],
+    ['— now + projected',     '           '+GR+'  '+GC+'      '],
+    ['— heading not valid',   '           H         '],
+    ['— projection outside',  '       '+GR+'            >'],
+    ['Status #171',           GX+'5/2'],
+  ];
+  $('preview').innerHTML = rows.map(([lbl,val])=>
+    `<div class="pv"><span class="lbl">${lbl}</span><span class="val">${cell(val)}</span></div>`).join('');
+}
+buildPreview();
+
+render();
+</script>
+</body>
+</html>

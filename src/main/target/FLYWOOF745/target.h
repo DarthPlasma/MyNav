@@ -20,6 +20,11 @@
 
 #pragma once
 
+#ifdef FLYWOOF745AIOV2
+// MyNAV: Flywoo F745 AIO V2 has the FLYWOOF745 pins, with an ICM42688P mounted differently
+#define FLYWOOF745
+#endif
+
 #ifdef FLYWOOF745
 #define TARGET_BOARD_IDENTIFIER "FWF7"
 #define USBD_PRODUCT_STRING "FLYWOOF745"
@@ -47,7 +52,11 @@
 #define BMI270_SPI_BUS         BUS_SPI4
 
 #define USE_IMU_ICM42605
+#ifdef FLYWOOF745AIOV2
+#define IMU_ICM42605_ALIGN      CW90_DEG    // Betaflight FLYWOOF745AIOV2
+#else
 #define IMU_ICM42605_ALIGN      CW270_DEG
+#endif
 #define ICM42605_CS_PIN         SPI4_NSS_PIN
 #define ICM42605_SPI_BUS        BUS_SPI4
 

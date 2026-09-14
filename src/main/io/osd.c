@@ -65,6 +65,7 @@
 #include "drivers/gimbal_common.h"
 
 #include "io/adsb.h"
+#include "io/adsb_threat.h"
 #include "io/flashfs.h"
 #include "io/gps.h"
 #include "io/osd.h"
@@ -218,8 +219,9 @@ static bool osdDisplayHasCanvas;
 
 #define AH_MAX_PITCH_DEFAULT 20 // Specify default maximum AHI pitch value displayed (degrees)
 
-PG_REGISTER_WITH_RESET_TEMPLATE(osdConfig_t, osdConfig, PG_OSD_CONFIG, 15);
-PG_REGISTER_WITH_RESET_FN(osdLayoutsConfig_t, osdLayoutsConfig, PG_OSD_LAYOUTS_CONFIG, 3);
+// Versions have 4 bits: after 15 comes 0 (MyNAV added the ADS-B cone settings)
+PG_REGISTER_WITH_RESET_TEMPLATE(osdConfig_t, osdConfig, PG_OSD_CONFIG, 0);
+PG_REGISTER_WITH_RESET_FN(osdLayoutsConfig_t, osdLayoutsConfig, PG_OSD_LAYOUTS_CONFIG, 4);
 
 /* OSD formatting helpers replacing common tfp_sprintf patterns
  * for reduced code size and CPU overhead. */
@@ -1828,6 +1830,147 @@ static bool osdElementEnabled(uint8_t elementID, bool onlyCurrentLayout) {
     return elementEnabled;
 }
 
+#ifdef USE_ADSB
+static adsbVehicle_t *osdFindAdsbThreat(uint32_t *toaSecondsOut)
+{
+    if (!isEnvironmentOkForCalculatingADSBDistanceBearing()) {
+        return NULL;
+    }
+
+    const adsbThreatLimits_t limits = {
+        .maxDistanceCm = METERS_TO_CENTIMETERS(osdConfig()->adsb_distance_warning),
+        .maxAboveCm = METERS_TO_CENTIMETERS(osdConfig()->adsb_ignore_plane_above_me_limit),
+        .coneWidthCd = DEGREES_TO_CENTIDEGREES(osdConfig()->adsb_detection_cone),
+        .maxToaSeconds = osdConfig()->adsb_aircraft_toa,
+    };
+    return findVehicleThreat(&limits, toaSecondsOut);
+}
+
+// Writes text of the given length over what was written last time, blanking the cells it no longer covers.
+// The OSD is not cleared between redraws, so elements must erase their own leftovers, and only those.
+static void osdWriteAdsbText(uint8_t x, uint8_t y, char *text, uint8_t length, uint8_t *drawnLength)
+{
+    if (length == 0 && *drawnLength == 0) {
+        return;
+    }
+
+    for (uint8_t i = length; i < *drawnLength; i++) {
+        text[i] = SYM_BLANK;
+    }
+    text[length > *drawnLength ? length : *drawnLength] = '\0';
+    displayWrite(osdDisplayPort, x, y, text);
+    *drawnLength = length;
+}
+
+static void osdDrawAdsbCriticalWarning(uint8_t elemPosX, uint8_t elemPosY)
+{
+    static uint8_t drawnLength = 0;
+    char buff[32];
+    uint32_t toaSeconds;
+    uint8_t length = 0;
+
+    if (osdFindAdsbThreat(&toaSeconds)) {
+        // Steady on purpose, and all caps: lowercase letters are symbols in the OSD font
+        length = tfp_sprintf(buff, "AIRCRAFT APPROACHING %uS", (unsigned)toaSeconds);
+    }
+    osdWriteAdsbText(elemPosX, elemPosY, buff, length, &drawnLength);
+}
+
+static void osdDrawAdsbStatus(uint8_t elemPosX, uint8_t elemPosY)
+{
+    // Aircraft received / aircraft within osd_adsb_distance_warning and osd_adsb_ignore_plane_above_me_limit
+    static uint8_t drawnLength = 0;
+    char buff[32];
+
+    buff[0] = SYM_ADSB;
+    const uint8_t length = 1 + tfp_sprintf(buff + 1, "%u/%u", getActiveVehiclesCount(),
+        getVehiclesWithinLimitsCount(METERS_TO_CENTIMETERS(osdConfig()->adsb_distance_warning), METERS_TO_CENTIMETERS(osdConfig()->adsb_ignore_plane_above_me_limit)));
+    osdWriteAdsbText(elemPosX, elemPosY, buff, length, &drawnLength);
+}
+
+static void osdDrawAdsbCone(uint8_t elemPosX, uint8_t elemPosY)
+{
+    // Row 1: scale of the approaching aircraft's cone, -X..0..+X degrees.
+    // Row 2: us in that cone now (arrow, or H without a valid heading), and after flying for the
+    // time-to-arrival at our own velocity (crosshair, or an arrow on the edge we would leave by).
+    static bool scaleDrawn = false;
+    static int8_t drawnNowCol = -1;
+    static int8_t drawnProjectedCol = -1;
+
+    char buff[ADSB_CONE_WIDTH_CELLS + 1];
+    uint32_t toaSeconds = 0;
+    const adsbVehicle_t *vehicle = osdFindAdsbThreat(&toaSeconds);
+    const bool headingValid = isImuHeadingValid();
+    int8_t nowCol = -1;
+    int8_t projectedCol = -1;
+    uint16_t projectedSymbol = SYM_AH_CH_CENTER;
+
+    if (vehicle) {
+        const uint8_t halfWidthDeg = adsbConeHalfWidthDeg(osdConfig()->adsb_detection_cone);
+        const int32_t halfWidthCd = DEGREES_TO_CENTIDEGREES(halfWidthDeg);
+        char label[5];
+
+        memset(buff, '-', ADSB_CONE_WIDTH_CELLS);
+        buff[ADSB_CONE_WIDTH_CELLS] = '\0';
+        buff[ADSB_CONE_CENTRE_CELL] = '0';
+        const int labelLength = tfp_sprintf(label, "-%u", halfWidthDeg);
+        memcpy(buff, label, labelLength);
+        label[0] = '+';
+        memcpy(buff + ADSB_CONE_WIDTH_CELLS - labelLength, label, labelLength);
+        displayWrite(osdDisplayPort, elemPosX, elemPosY, buff);
+        scaleDrawn = true;
+
+        nowCol = adsbConeColumn(constrain(adsbHeadingErrorCd(vehicle), -halfWidthCd, halfWidthCd), halfWidthDeg);
+
+        if (headingValid && toaSeconds > 0) {
+            const int32_t projectedCd = adsbConeProjectedAngleCd(vehicle, getEstimatedActualVelocity(X), getEstimatedActualVelocity(Y), toaSeconds);
+            if (projectedCd > halfWidthCd) {
+                projectedCol = ADSB_CONE_WIDTH_CELLS - 1;
+                projectedSymbol = SYM_ARROW_RIGHT;
+            } else if (projectedCd < -halfWidthCd) {
+                projectedCol = 0;
+                projectedSymbol = SYM_ARROW_LEFT;
+            } else {
+                projectedCol = adsbConeColumn(projectedCd, halfWidthDeg);
+            }
+
+            if (projectedCol == nowCol) {
+                projectedCol = -1;  // on the arrow: show the arrow only
+            }
+        }
+    } else if (scaleDrawn) {
+        memset(buff, SYM_BLANK, ADSB_CONE_WIDTH_CELLS);
+        buff[ADSB_CONE_WIDTH_CELLS] = '\0';
+        displayWrite(osdDisplayPort, elemPosX, elemPosY, buff);
+        scaleDrawn = false;
+    }
+
+    // Blank only the markers written last time that are not redrawn in the same cell
+    if (drawnNowCol >= 0 && drawnNowCol != nowCol && drawnNowCol != projectedCol) {
+        displayWriteChar(osdDisplayPort, elemPosX + drawnNowCol, elemPosY + 1, SYM_BLANK);
+    }
+    if (drawnProjectedCol >= 0 && drawnProjectedCol != nowCol && drawnProjectedCol != projectedCol) {
+        displayWriteChar(osdDisplayPort, elemPosX + drawnProjectedCol, elemPosY + 1, SYM_BLANK);
+    }
+
+    if (nowCol >= 0) {
+        if (headingValid) {
+            // Our course against the aircraft's: up = head-on, down = same course, sideways = crossing towards that side
+            osdDrawDirArrow(osdDisplayPort, osdGetDisplayPortCanvas(), OSD_DRAW_POINT_GRID(elemPosX + nowCol, elemPosY + 1),
+                180.0f - CENTIDEGREES_TO_DEGREES(vehicle->vehicleValues.heading) + osdGetFlightDirection());
+        } else {
+            displayWriteChar(osdDisplayPort, elemPosX + nowCol, elemPosY + 1, 'H');
+        }
+    }
+    if (projectedCol >= 0) {
+        displayWriteChar(osdDisplayPort, elemPosX + projectedCol, elemPosY + 1, projectedSymbol);
+    }
+
+    drawnNowCol = nowCol;
+    drawnProjectedCol = projectedCol;
+}
+#endif
+
 static bool osdDrawSingleElement(uint8_t item)
 {
     uint16_t pos = osdLayoutsConfig()->item_pos[currentLayout][item];
@@ -2412,6 +2555,15 @@ static bool osdDrawSingleElement(uint8_t item)
             }
             break;
         }
+        case OSD_ADSB_CRITICAL_WARNING:
+            osdDrawAdsbCriticalWarning(elemPosX, elemPosY);
+            return true;
+        case OSD_ADSB_CONE:
+            osdDrawAdsbCone(elemPosX, elemPosY);
+            return true;
+        case OSD_ADSB_STATUS:
+            osdDrawAdsbStatus(elemPosX, elemPosY);
+            return true;
 
 #endif
     case OSD_MAP_NORTH:
@@ -4314,6 +4466,8 @@ PG_RESET_TEMPLATE(osdConfig_t, osdConfig,
     .adsb_distance_alert = SETTING_OSD_ADSB_DISTANCE_ALERT_DEFAULT,
     .adsb_ignore_plane_above_me_limit = SETTING_OSD_ADSB_IGNORE_PLANE_ABOVE_ME_LIMIT_DEFAULT,
     .adsb_warning_style = SETTING_OSD_ADSB_WARNING_STYLE_DEFAULT,
+    .adsb_detection_cone = SETTING_OSD_ADSB_DETECTION_CONE_DEFAULT,
+    .adsb_aircraft_toa = SETTING_OSD_ADSB_AIRCRAFT_TOA_DEFAULT,
 #endif
 #if defined(USE_SERIALRX_CRSF) || defined(USE_RX_MSP)
     .snr_alarm = SETTING_OSD_SNR_ALARM_DEFAULT,
