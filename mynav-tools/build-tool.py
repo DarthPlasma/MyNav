@@ -5,13 +5,14 @@ MyNAV build tool.
 A small local web page to build the firmware: pick a target, build, download the .hex. Every target
 defined under src/main/target can be chosen, with the MyTAflight boards listed first; only the chosen
 one is built. INAV has no per-feature build options (ADS-B is on for every GPS target), so there is
-nothing else to choose. It drives CMake in <repo>/build, configuring it on first use.
+nothing else to choose. It drives CMake in <repo>/build as a Release build, configuring it on first use.
 
 Run:  python3 mynav-tools/build-tool.py [--toolchain-bin DIR]    then open http://localhost:8792
 
 --toolchain-bin (or the MYNAV_TOOLCHAIN_BIN environment variable) is an arm-none-eabi toolchain
-other than the one INAV downloads into tools/. Its version is not checked, otherwise INAV's CMake
-would download its own. cmake is taken from tools/cmake-venv when present, else from PATH.
+other than the one INAV downloads into tools/; its version is then not checked, otherwise INAV's
+CMake would download its own. It is needed only for the first configure: afterwards the toolchain
+recorded in build/CMakeCache.txt is used. cmake is taken from tools/cmake-venv when present.
 """
 
 import argparse
@@ -25,8 +26,10 @@ import http.server
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # repo root = parent of mynav-tools/
 BUILD_DIR = os.path.join(REPO, "build")
+CMAKE_CACHE = os.path.join(BUILD_DIR, "CMakeCache.txt")
 PORT = 8792
 TIMEOUT_S = 1800
+MIN_FREE_GB = 1.5   # a first configure alone writes about 1 GB into build/
 
 # Listed first: the MyTAflight targets that exist in INAV under the same name (KAKUTEH7 also covers the
 # Kakute H7 V1.3), then the MyTAflight boards matched pin by pin against their Betaflight configs.
@@ -62,6 +65,25 @@ def cmake_command():
     return venv_cmake if os.path.isfile(venv_cmake) else "cmake"
 
 
+def cached_setting(name):
+    try:
+        with open(CMAKE_CACHE) as f:
+            match = re.search(r"^" + re.escape(name) + r":\w+=(.*)$", f.read(), flags=re.M)
+    except OSError:
+        return None
+    return match.group(1).strip() if match else None
+
+
+def cached_toolchain_bin():
+    """bin/ of the compiler build/ was configured with.
+
+    CMake re-runs its configure step on its own during a build. If it cannot find that same compiler in
+    PATH it deletes its cache, and INAV's CMake then downloads a toolchain and falls back to a debug build.
+    """
+    compiler = cached_setting("CMAKE_C_COMPILER") or ""
+    return os.path.dirname(compiler) if os.path.isabs(compiler) and os.path.isfile(compiler) else ""
+
+
 def free_disk_gb():
     return round(shutil.disk_usage(REPO).free / 1e9, 1)
 
@@ -83,26 +105,37 @@ def find_hex(target):
     return os.path.basename(max(hexes, key=os.path.getmtime)) if hexes else ""
 
 
-def run_build(target, toolchain_bin, known_targets):
-    if target not in known_targets:
-        return {"ok": False, "cmd": "", "log": "Unknown target."}
-
-    cmake = cmake_command()
-    # The build's own steps run cmake and the toolchain by name
-    path = [os.path.dirname(cmake)] if os.path.isabs(cmake) else []
-    if toolchain_bin:
-        path.insert(0, toolchain_bin)
-    env = dict(os.environ)
-    env["PATH"] = os.pathsep.join(path + [env.get("PATH", "")])
+def build_steps(cmake, target, toolchain_bin):
+    """Configure when build/ is missing or not a Release build, then build the target."""
     steps = []
-
-    if not os.path.isfile(os.path.join(BUILD_DIR, "CMakeCache.txt")):
+    if cached_setting("CMAKE_BUILD_TYPE") != "Release":
         configure = [cmake, "-S", REPO, "-B", BUILD_DIR, "-DCMAKE_BUILD_TYPE=Release"]
         if toolchain_bin:
             configure.append("-DCOMPILER_VERSION_CHECK=OFF")
         steps.append(configure)
     steps.append([cmake, "--build", BUILD_DIR, "--target", target, "-j", str(os.cpu_count() or 4)])
+    return steps
 
+
+def run_build(target, toolchain_bin, known_targets):
+    if target not in known_targets:
+        return {"ok": False, "cmd": "", "log": "Unknown target."}
+
+    free = free_disk_gb()
+    if free < MIN_FREE_GB:
+        return {"ok": False, "cmd": "",
+                "log": "Only %.1f GB free on disk, a build needs at least %.1f GB: free some space first." % (free, MIN_FREE_GB)}
+
+    cmake = cmake_command()
+    toolchain = toolchain_bin or cached_toolchain_bin()
+    # The build's own steps run cmake and the toolchain by name
+    path = [os.path.dirname(cmake)] if os.path.isabs(cmake) else []
+    if toolchain:
+        path.insert(0, toolchain)
+    env = dict(os.environ)
+    env["PATH"] = os.pathsep.join(path + [env.get("PATH", "")])
+
+    steps = build_steps(cmake, target, toolchain_bin)
     log = ""
     shown = "\n".join("$ " + " ".join(step) for step in steps)
     for step in steps:
@@ -139,7 +172,7 @@ PAGE = r"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
  .pill.ok{background:rgba(58,210,159,.15);color:var(--ok)} .pill.err{background:rgba(255,93,93,.15);color:var(--err)}
  a.dl{color:var(--ok);font-weight:700}
 </style></head><body>
-<header><h1>MyNAV — Build Tool</h1><p>Pick a target, build, download the <code>.hex</code>. Only the chosen target is built, with CMake in <code>build/</code> (configured on first use).</p></header>
+<header><h1>MyNAV — Build Tool</h1><p>Pick a target, build, download the <code>.hex</code>. Only the chosen target is built, as a Release build with CMake in <code>build/</code> (configured on first use).</p></header>
 <main>
  <div class="panel">
    <div class="row">
@@ -180,7 +213,7 @@ function fillTargets(){
 $("filter").addEventListener("input", fillTargets);
 fillTargets();
 $("disk").textContent = `free disk ${INFO.free_gb} GB`;
-$("toolchain").textContent = "cmake: " + INFO.cmake + " · toolchain: " + (INFO.toolchain || "INAV's own (tools/ or PATH)");
+$("toolchain").textContent = "cmake: " + INFO.cmake + " · toolchain: " + (INFO.toolchain || "none configured yet: INAV's CMake will download its own");
 
 $("buildBtn").onclick = async () => {
   const btn = $("buildBtn"); building = true; btn.disabled = true; btn.textContent = "Building…";
@@ -204,7 +237,6 @@ $("buildBtn").onclick = async () => {
 
 def make_handler(toolchain_bin, targets):
     mine = [name for name in MY_TARGETS if name in targets]
-    info = {"mine": mine, "targets": sorted(targets.items()), "cmake": cmake_command(), "toolchain": toolchain_bin}
 
     class Handler(http.server.BaseHTTPRequestHandler):
         def log_message(self, *a):
@@ -220,8 +252,9 @@ def make_handler(toolchain_bin, targets):
 
         def do_GET(self):
             if self.path == "/" or self.path.startswith("/index"):
-                page_info = dict(info, free_gb=free_disk_gb())
-                self._send(200, PAGE.replace("__INFO__", json.dumps(page_info)))
+                info = {"mine": mine, "targets": sorted(targets.items()), "cmake": cmake_command(),
+                        "toolchain": toolchain_bin or cached_toolchain_bin(), "free_gb": free_disk_gb()}
+                self._send(200, PAGE.replace("__INFO__", json.dumps(info)))
             elif self.path.startswith("/hex/"):
                 name = os.path.basename(self.path[len("/hex/"):])
                 path = os.path.join(BUILD_DIR, name)
@@ -262,7 +295,9 @@ def main():
     if missing:
         print("Warning, not defined in src/main/target: " + ", ".join(missing))
 
+    toolchain = args.toolchain_bin or cached_toolchain_bin()
     print("MyNAV build tool — repo: %s, %d targets" % (REPO, len(targets)))
+    print("Toolchain: " + (toolchain or "none configured yet, INAV's CMake will download its own"))
     print("Open http://localhost:%d" % args.port)
     http.server.HTTPServer(("127.0.0.1", args.port), make_handler(args.toolchain_bin, targets)).serve_forever()
 

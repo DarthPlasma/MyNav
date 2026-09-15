@@ -62,13 +62,17 @@ GEPRC_TAKER_H743V2, IFLIGHT_H743_AIO. Andrebbero scritti come target nuovi.
 
 - cmake 3.31 in un venv: `python3 -m venv tools/cmake-venv && tools/cmake-venv/bin/pip install cmake==3.31.10`
   (`tools/` è ignorata da git).
-- INAV 9.1.0 si aspetta arm-none-eabi-gcc 13.2.1. Con un'altra versione già installata (qui la 13.3.1 di MyTAflight)
-  serve `-DCOMPILER_VERSION_CHECK=OFF`, altrimenti il configure scarica la propria toolchain (circa 1 GB).
-- Riga di comando:
-  `PATH=<toolchain>/bin:$PWD/tools/cmake-venv/bin:$PATH cmake -S . -B build -DCOMPILER_VERSION_CHECK=OFF -DCMAKE_BUILD_TYPE=Release`,
+- Toolchain: la arm-none-eabi-gcc 13.2.1 che INAV si aspetta. Il primo configure la scarica da solo in
+  `tools/arm-gnu-toolchain-13.2.rel1` (circa 1 GB). Un'altra versione va passata nel PATH con `-DCOMPILER_VERSION_CHECK=OFF`.
+- Riga di comando: `PATH=$PWD/tools/cmake-venv/bin:$PATH cmake -S . -B build -DCMAKE_BUILD_TYPE=Release`,
   poi `cmake --build build --target DAKEFPVH743`. Il `.hex` finisce in `build/`.
-- Oppure: `python3 mynav-tools/build-tool.py --toolchain-bin <toolchain>/bin` e poi http://localhost:8792.
+- Oppure: `python3 mynav-tools/build-tool.py` e poi http://localhost:8792. Con una toolchain diversa da quella di INAV
+  aggiungere `--toolchain-bin <toolchain>/bin` al primo avvio; dopo il tool la legge da `build/CMakeCache.txt`.
 - Il solo configure genera circa 1 GB in `build/`; `Release` evita i simboli di debug, il firmware è identico.
+- Durante una build CMake può rifare il configure da solo: se in quel momento non trova nel PATH lo stesso compilatore
+  cancella la cache, scarica la toolchain e torna a una build di debug che può riempire il disco. Il build tool mette
+  nel PATH il compilatore della cache e non parte con meno di 1,5 GB liberi.
+- I `.hex` compilati prima della pulizia del 2026-09-15 sono in `release/` (ignorata da git).
 
 ## Unit test
 
