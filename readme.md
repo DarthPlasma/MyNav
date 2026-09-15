@@ -101,7 +101,7 @@ set osd_adsb_detection_cone = 180
 save
 ```
 
-Simulated traffic can come from the ESP32 ADS-B injector in [MyTAflight](https://github.com/DarthPlasma/MytaFlight) (`mytaflight-tools/adsb-injector/` on the `integration` branch): it streams MAVLink `ADSB_VEHICLE` frames for up to 5 aircraft set from a web page.
+Simulated traffic can come from the **[ESP32 ADS-B injector](https://github.com/DarthPlasma/MytaFlight/tree/integration/mytaflight-tools/adsb-injector)** of MyTAflight: it streams MAVLink `ADSB_VEHICLE` frames for up to 5 aircraft set from a web page.
 
 ## Targets
 
