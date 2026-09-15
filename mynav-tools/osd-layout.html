@@ -51,6 +51,7 @@
   .pv .val { font-family:ui-monospace,Menlo,Consolas,monospace; font-size:14px; color:#bcd8ff; letter-spacing:.5px;
              display:inline-flex; align-items:center; gap:1px; white-space:pre; }
   .pv .val svg { display:inline-block; }
+  .sym { font-size:6.5px; line-height:1; letter-spacing:-.2px; white-space:nowrap; }
 </style>
 </head>
 <body>
@@ -309,7 +310,7 @@ const OSD_ITEMS = [
 const LAYOUT_COUNT = 4;       // OSD_ALTERNATE_LAYOUT_COUNT + 1
 const POS_MAX = 63;           // columns and rows are 6 bits (OSD_POS in osd.h)
 
-// OSD glyphs approximated as inline SVG; text values are exact.
+// OSD font symbols, one cell each: a private-use character per symbol, drawn as a small SVG or a tiny label.
 const GLYPH_SVG = {
   volt:'<svg width="8" height="14" viewBox="0 0 8 14" fill="currentColor"><path d="M4.9 0 0 8h2.9L2 14l6-8.6H4.2L4.9 0Z"/></svg>',
   batt:'<svg width="14" height="9" viewBox="0 0 14 9" fill="none" stroke="currentColor" stroke-width="1"><rect x="0.5" y="0.5" width="11" height="8" rx="1"/><rect x="12" y="3" width="2" height="3" fill="currentColor" stroke="none"/><rect x="2" y="2" width="6" height="5" fill="currentColor" stroke="none"/></svg>',
@@ -320,35 +321,110 @@ const GLYPH_SVG = {
   alt:'<svg width="11" height="14" viewBox="0 0 11 14" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linejoin="round" stroke-linecap="round"><path d="M5.5 2v8.5M2.6 4.9 5.5 2l2.9 2.9M1 12.5h9"/></svg>',
   radar:'<svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1"><circle cx="6" cy="6" r="5"/><circle cx="6" cy="6" r="2.5"/><path d="M6 6 9.6 2.4"/><circle cx="6" cy="6" r="0.9" fill="currentColor" stroke="none"/></svg>',
   cross:'<svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M5.5 0v4M5.5 7v4M0 5.5h4M7 5.5h4"/></svg>',
+  clock:'<svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1"><circle cx="6" cy="6" r="5"/><path d="M6 3v3l2 1.5"/></svg>',
 };
-// single-cell glyph markers embedded in sample strings (private-use code points, 1 char = 1 cell)
-const GV='', GB='', GA='', GS='', GH='', GR='', GL='', GX='', GC='';
-const GLYPHS = { [GV]:GLYPH_SVG.volt, [GB]:GLYPH_SVG.batt, [GA]:GLYPH_SVG.amp, [GS]:GLYPH_SVG.sat, [GH]:GLYPH_SVG.home,
-                 [GR]:GLYPH_SVG.arrow, [GL]:GLYPH_SVG.alt, [GX]:GLYPH_SVG.radar, [GC]:GLYPH_SVG.cross };
+const SYMBOLS = {
+  BATT:GLYPH_SVG.batt, VOLT:GLYPH_SVG.volt, AMP:GLYPH_SVG.amp, SAT:GLYPH_SVG.sat, SAT2:'', HOME:GLYPH_SVG.home,
+  ARROW:GLYPH_SVG.arrow, ALT:GLYPH_SVG.alt, RADAR:GLYPH_SVG.radar, CROSS:GLYPH_SVG.cross, CLOCK:GLYPH_SVG.clock,
+  RSSI:'RS', LQ:'LQ', SNR:'SNR', DB:'dB', DBM:'dBm', MW:'mW', MAH:'mAh', WH:'Wh', W:'W', MOHM:'mΩ',
+  KMH:'km/h', MS:'m/s', KM:'km', M:'m', DEG:'°', DEGC:'°C', MAHKM:'mAh/km', WHKM:'Wh/km', AMS:'A/m/s',
+  ON:'ON', FLY:'FLY', THR:'THR', LAT:'LAT', LON:'LON', HDOP:'HDOP', HEAD:'HDG', COG:'COG', AZ:'AZ',
+  TRIP:'TRIP', PITCH:'PIT', ROLL:'ROL', WIND:'WND', RTH:'RTH', IMU:'IMU', BARO:'BAR', TEMP:'TMP', ESC:'ESC',
+  SCALE:'SCL', G:'G', GX:'GX', GY:'GY', GZ:'GZ', VTX:'VTX', RPM:'RPM', PROFILE:'PRF', GLIDE:'GLD',
+  XTE:'XTE', PAN:'PAN', ODO:'ODO', LOGO:'LOGO', BB:'BB', BAND:'BND', MODE:'MOD', SWITCH:'SW', AIR:'AIR',
+  UP:'↑', DOWN:'↓', THRBAR:'▮', MAPREF:'▲',
+};
+const S = {}, GLYPHS = {};
+Object.entries(SYMBOLS).forEach(([name, drawing], i) => {
+  const ch = String.fromCharCode(0xE100 + i);
+  S[name] = ch;
+  GLYPHS[ch] = drawing.startsWith('<svg') ? drawing : `<span class="sym">${drawing}</span>`;
+});
 
-// Representative sample text so footprints and overlaps are visible. Unknown elements get a label from the name.
+// An example value for every element, as wide as src/main/io/osd.c draws it (metric units, default decimals).
 const SAMPLES = {
-  OSD_RSSI_VALUE:"99", OSD_MAIN_BATT_VOLTAGE: GB+"16.8"+GV, OSD_MAIN_BATT_CELL_VOLTAGE: GB+"4.20"+GV,
-  OSD_CRAFT_NAME:"CRAFTNAME", OSD_PILOT_NAME:"PILOTNAME", OSD_FLYMODE:"ANGL", OSD_CURRENT_DRAW:"12.4"+GA,
-  OSD_MAH_DRAWN:"1234", OSD_GPS_SPEED:"45", OSD_GPS_SATS: GS+"12", OSD_ALTITUDE: GL+"123",
-  OSD_HOME_DIR: GR, OSD_HOME_DIST: GH+"1.2", OSD_HEADING:"123", OSD_THROTTLE_POS:"35",
-  OSD_ONTIME:"12:34", OSD_FLYTIME:"12:34", OSD_MESSAGES:"LANDING", OSD_GPS_LAT:"47.12345", OSD_GPS_LON:"9.56789",
-  OSD_ADSB_WARNING: GX+"2.3K"+GR+"150",
-  OSD_ADSB_INFO: GX+"5",
-  OSD_ADSB_CRITICAL_WARNING:"AIRCRAFT APPROACHING 45S",
-  OSD_ADSB_STATUS: GX+"5/2",
+  OSD_RSSI_VALUE: S.RSSI+'99', OSD_MAIN_BATT_VOLTAGE: S.BATT+'16.8'+S.VOLT,
+  OSD_ONTIME: S.ON+'05:32', OSD_FLYTIME: S.FLY+'04:12', OSD_FLYMODE: 'ANGL', OSD_CRAFT_NAME: 'EXPLORER',
+  OSD_THROTTLE_POS: S.THR+' 35', OSD_VTX_CHANNEL: 'CH:R8:1', OSD_CURRENT_DRAW: '4.5'+S.AMP, OSD_MAH_DRAWN: ' 1234'+S.MAH,
+  OSD_GPS_SPEED: ' 45'+S.KMH, OSD_GPS_SATS: S.SAT+S.SAT2+'14', OSD_ALTITUDE: S.ALT+' 123'+S.M,
+  OSD_ROLL_PIDS: 'ROL  40  60  23  90', OSD_PITCH_PIDS: 'PIT  44  64  25  95', OSD_YAW_PIDS: 'YAW  35  80   0  60',
+  OSD_POWER: '210'+S.W, OSD_GPS_LON: S.LON+' 9.567812', OSD_GPS_LAT: S.LAT+'45.464211',
+  OSD_HOME_DIR: S.ARROW, OSD_HOME_DIST: S.HOME+'1.25'+S.KM, OSD_HEADING: S.HEAD+'123'+S.DEG,
+  OSD_VERTICAL_SPEED_INDICATOR: ' 1.5'+S.MS, OSD_AIR_SPEED: ' 52'+S.KMH, OSD_ONTIME_FLYTIME: S.FLY+'04:12',
+  OSD_RTC_TIME: S.CLOCK+'14:32:08', OSD_MESSAGES: '      HOLDING POSITION      ', OSD_GPS_HDOP: S.HDOP+S.SAT2+'1.2',
+  OSD_MAIN_BATT_CELL_VOLTAGE: S.BATT+'4.12'+S.VOLT, OSD_SCALED_THROTTLE_POS: S.THR+' 42', OSD_HEADING_GRAPH: '-|-|N|-|-',
+  OSD_EFFICIENCY_MAH_PER_KM: '123'+S.MAHKM, OSD_WH_DRAWN: '4.5'+S.WH, OSD_BATTERY_REMAINING_CAPACITY: ' 1350'+S.MAH,
+  OSD_BATTERY_REMAINING_PERCENT: S.BATT+' 76%', OSD_EFFICIENCY_WH_PER_KM: '2.1'+S.WHKM, OSD_TRIP_DIST: S.TRIP+'12.4'+S.KM,
+  OSD_ATTITUDE_PITCH: S.PITCH+'4.5', OSD_ATTITUDE_ROLL: S.ROLL+'2.3',
+  OSD_WIND_SPEED_HORIZONTAL: S.WIND+S.ARROW+' 12'+S.KMH, OSD_WIND_SPEED_VERTICAL: S.WIND+S.UP+'1.2'+S.MS,
+  OSD_REMAINING_FLIGHT_TIME_BEFORE_RTH: S.RTH+'12:34', OSD_REMAINING_DISTANCE_BEFORE_RTH: S.RTH+' 3.4'+S.KM,
+  OSD_HOME_HEADING_ERROR: S.HOME+S.HEAD+' -12'+S.DEG, OSD_COURSE_HOLD_ERROR: S.HEAD+' 15'+S.DEG,
+  OSD_COURSE_HOLD_ADJUSTMENT: S.HEAD+' -30'+S.DEG, OSD_SAG_COMPENSATED_MAIN_BATT_VOLTAGE: S.BATT+'17.1'+S.VOLT,
+  OSD_MAIN_BATT_SAG_COMPENSATED_CELL_VOLTAGE: S.BATT+'4.25'+S.VOLT, OSD_POWER_SUPPLY_IMPEDANCE: ' 14'+S.MOHM,
+  OSD_LEVEL_PIDS: 'LEV  20  15  75', OSD_POS_XY_PIDS: 'PXY  65 120  10', OSD_POS_Z_PIDS: 'PZ   50   0   0',
+  OSD_VEL_XY_PIDS: 'VXY  40  15 100', OSD_VEL_Z_PIDS: 'VZ  100  50  10', OSD_HEADING_P: 'HP  60',
+  OSD_BOARD_ALIGN_ROLL: 'AR  0.0', OSD_BOARD_ALIGN_PITCH: 'AP  0.0', OSD_RC_EXPO: 'EXP  70', OSD_RC_YAW_EXPO: 'YEX  20',
+  OSD_THROTTLE_EXPO: 'TEX   0', OSD_PITCH_RATE: 'SPR  40', OSD_ROLL_RATE: 'SRR  40', OSD_YAW_RATE: 'SYR  20',
+  OSD_MANUAL_RC_EXPO: 'MEX  70', OSD_MANUAL_RC_YAW_EXPO: 'MYX  20', OSD_MANUAL_PITCH_RATE: 'MPR 100',
+  OSD_MANUAL_ROLL_RATE: 'MRR 100', OSD_MANUAL_YAW_RATE: 'MYR 100', OSD_NAV_FW_CRUISE_THR: 'CRZ 1400',
+  OSD_NAV_FW_PITCH2THR: 'P2T  10', OSD_FW_MIN_THROTTLE_DOWN_PITCH_ANGLE: '0TP  0.0', OSD_DEBUG: '[0]=     0 [1]=     0',
+  OSD_FW_ALT_PID_OUTPUTS: 'PZO   12    3    1   16', OSD_FW_POS_PID_OUTPUTS: 'PXYO  12    3    1   16',
+  OSD_MC_VEL_X_PID_OUTPUTS: 'VXO   12    3    1   16', OSD_MC_VEL_Y_PID_OUTPUTS: 'VYO   12    3    1   16',
+  OSD_MC_VEL_Z_PID_OUTPUTS: 'VZO   12    3    1   16', OSD_MC_POS_XYZ_P_OUTPUTS: 'POSO  120   80   20',
+  OSD_3D_SPEED: ' 48'+S.KMH, OSD_IMU_TEMPERATURE: S.IMU+' 45'+S.DEGC, OSD_BARO_TEMPERATURE: S.BARO+' 38'+S.DEGC,
+  OSD_TEMP_SENSOR_0_TEMPERATURE: S.TEMP+' 52'+S.DEGC, OSD_TEMP_SENSOR_1_TEMPERATURE: S.TEMP+' 49'+S.DEGC,
+  OSD_TEMP_SENSOR_2_TEMPERATURE: S.TEMP+' 47'+S.DEGC, OSD_TEMP_SENSOR_3_TEMPERATURE: S.TEMP+' 45'+S.DEGC,
+  OSD_TEMP_SENSOR_4_TEMPERATURE: S.TEMP+' 44'+S.DEGC, OSD_TEMP_SENSOR_5_TEMPERATURE: S.TEMP+' 43'+S.DEGC,
+  OSD_TEMP_SENSOR_6_TEMPERATURE: S.TEMP+' 41'+S.DEGC, OSD_TEMP_SENSOR_7_TEMPERATURE: S.TEMP+' 40'+S.DEGC,
+  OSD_ALTITUDE_MSL: S.ALT+' 456'+S.M, OSD_PLUS_CODE: '8FVC9G8F+6W', OSD_MAP_SCALE: S.SCALE+'100'+S.M,
+  OSD_GFORCE: S.G+'1.0', OSD_GFORCE_X: S.GX+'0.12', OSD_GFORCE_Y: S.GY+'0.05', OSD_GFORCE_Z: S.GZ+'1.01',
+  OSD_RC_SOURCE: 'STD', OSD_VTX_POWER: S.VTX+'3', OSD_ESC_RPM: S.RPM+'32K', OSD_ESC_TEMPERATURE: S.ESC+' 48'+S.DEGC,
+  OSD_AZIMUTH: S.AZ+'231'+S.DEG, OSD_RSSI_DBM: S.RSSI+' -85'+S.DBM, OSD_LQ_UPLINK: S.LQ+'100',
+  OSD_SNR_DB: S.SNR+'  9'+S.DB, OSD_TX_POWER_UPLINK: ' 250'+S.MW,
+  OSD_GVAR_0: 'G0:   12', OSD_GVAR_1: 'G1:    0', OSD_GVAR_2: 'G2:    0', OSD_GVAR_3: 'G3:    0',
+  OSD_NAV_FW_CONTROL_SMOOTHNESS: 'CTL S 2', OSD_VERSION: 'INAV 9.1.0', OSD_RANGEFINDER: '1.2'+S.M,
+  OSD_PLIMIT_REMAINING_BURST_TIME: '3.0S', OSD_PLIMIT_ACTIVE_CURRENT_LIMIT: ' 60'+S.AMP, OSD_PLIMIT_ACTIVE_POWER_LIMIT: '500'+S.W,
+  OSD_GLIDESLOPE: S.GLIDE+'8.5', OSD_GPS_MAX_SPEED: ' 96'+S.KMH, OSD_3D_MAX_SPEED: ' 98'+S.KMH, OSD_AIR_MAX_SPEED: '105'+S.KMH,
+  OSD_ACTIVE_PROFILE: S.PROFILE+'1', OSD_MISSION: ' OK > 5WP',
+  OSD_SWITCH_INDICATOR_0: 'LED '+S.SWITCH, OSD_SWITCH_INDICATOR_1: 'CAM '+S.SWITCH, OSD_SWITCH_INDICATOR_2: 'BEEP'+S.SWITCH,
+  OSD_SWITCH_INDICATOR_3: 'VTX '+S.SWITCH, OSD_TPA_TIME_CONSTANT: 'TPA TC  150', OSD_FW_LEVEL_TRIM: 'LEVEL 1.5',
+  OSD_GLIDE_TIME_REMAINING: S.GLIDE+'05:30', OSD_GLIDE_RANGE: S.GLIDE+'2.1'+S.KM, OSD_CLIMB_EFFICIENCY: '2.5'+S.AMS,
+  OSD_NAV_WP_MULTI_MISSION_INDEX: 'WP NO 1', OSD_GROUND_COURSE: S.COG+'123'+S.DEG, OSD_CROSS_TRACK_ERROR: S.XTE+' 12'+S.M,
+  OSD_PILOT_NAME: 'PILOT', OSD_PAN_SERVO_CENTRED: S.PAN+' 12'+S.DEG, OSD_MULTI_FUNCTION: 'SAFEHOME 1',
+  OSD_ODOMETER: S.ODO+' 123.4'+S.KM, OSD_PILOT_LOGO: S.LOGO+S.LOGO+S.LOGO,
+  OSD_CUSTOM_ELEMENT_1: 'CUSTOM 1', OSD_CUSTOM_ELEMENT_2: 'CUSTOM 2', OSD_CUSTOM_ELEMENT_3: 'CUSTOM 3',
+  OSD_CUSTOM_ELEMENT_4: 'CUSTOM 4', OSD_CUSTOM_ELEMENT_5: 'CUSTOM 5', OSD_CUSTOM_ELEMENT_6: 'CUSTOM 6',
+  OSD_CUSTOM_ELEMENT_7: 'CUSTOM 7', OSD_CUSTOM_ELEMENT_8: 'CUSTOM 8',
+  OSD_ADSB_WARNING: S.RADAR+'2.3'+S.KM+S.ARROW+' 150'+S.M, OSD_ADSB_INFO: S.RADAR+'5',
+  OSD_BLACKBOX: S.BB+'00012', OSD_FORMATION_FLIGHT: S.ARROW+'A'+S.LQ+S.ARROW,
+  OSD_LQ_DOWNLINK: S.LQ+'100'+S.DOWN, OSD_RX_POWER_DOWNLINK: ' 250'+S.MW+S.DOWN, OSD_RX_BAND: S.BAND+'2.4G',
+  OSD_RX_MODE: S.MODE+'500HZ ', OSD_COURSE_TO_FENCE: S.ARROW, OSD_H_DIST_TO_FENCE: 'FD 1.2'+S.KM,
+  OSD_V_DIST_TO_FENCE: 'FD 120'+S.M+' '+S.UP, OSD_NAV_FW_ALT_CONTROL_RESPONSE: 'ACR  20', OSD_NAV_MIN_GROUND_SPEED: ' 20'+S.KMH,
+  OSD_ADSB_CRITICAL_WARNING: 'AIRCRAFT APPROACHING 45S', OSD_ADSB_STATUS: S.RADAR+'5/2',
 };
 
-// Multi-cell elements: relative cells [{dx,dy,ch}] instead of a single-row string.
+const row = (text, dy = 0) => [...text].map((ch, i) => ({dx:i, dy, ch}));
+const column = chars => chars.map((ch, i) => ({dx:0, dy:i, ch}));
+// iNAV draws these around the screen centre, wherever the element is placed
+function centred(entry, cells){
+  const cx = Math.floor(COLS / 2), cy = Math.floor(ROWS / 2);
+  return cells.map(c => ({dx: cx + c.dx - entry.x, dy: cy + c.dy - entry.y, ch: c.ch}));
+}
+
+// Elements drawn over more than one row, or not at their position: relative cells [{dx,dy,ch}].
 const MULTICELL = {
-  // Approach cone of the aircraft: row 0 = scale, row 1 = us now (arrow) and us after the time to arrival (crosshair).
-  // Left-anchored, 21 x 2. Sample: arrow just right of the centre, crosshair further right.
-  OSD_ADSB_CONE: () => {
-    const cells = [..."-10-------0-------+10"].map((ch,i)=>({dx:i, dy:0, ch}));
-    cells.push({dx:11, dy:1, ch:GR});
-    cells.push({dx:14, dy:1, ch:GC});
-    return cells;
-  },
+  OSD_CROSSHAIRS: e => centred(e, [{dx:-1,dy:0,ch:'-'}, {dx:0,dy:0,ch:S.CROSS}, {dx:1,dy:0,ch:'-'}]),
+  OSD_ARTIFICIAL_HORIZON: e => centred(e, [-5,-4,-3,-2,2,3,4,5].map(dx => ({dx, dy:0, ch:'─'}))),
+  OSD_HORIZON_SIDEBARS: e => centred(e, [-3,-2,-1,0,1,2,3].flatMap(dy => [{dx:-7, dy, ch: dy ? '│' : '▸'}, {dx:7, dy, ch: dy ? '│' : '◂'}])),
+  OSD_MAP_NORTH: e => centred(e, [{dx:0,dy:0,ch:S.ARROW}, {dx:-6,dy:-3,ch:S.HOME}]),
+  OSD_MAP_TAKEOFF: e => centred(e, [{dx:0,dy:0,ch:S.ARROW}, {dx:4,dy:3,ch:S.HOME}]),
+  OSD_RADAR: e => centred(e, [{dx:0,dy:0,ch:S.ARROW}, {dx:5,dy:-2,ch:'A'}, {dx:-8,dy:3,ch:'B'}]),
+  OSD_VARIO: () => column([S.UP, S.UP, ' ', ' ', ' ']),
+  OSD_THROTTLE_GAUGE: () => column([' ', ' ', S.THRBAR, S.THRBAR, S.THRBAR]),
+  OSD_MAP_REFERENCE: () => column([S.MAPREF, 'N']),
+  OSD_TPA: () => row('TPA  50').concat(row('BP 1500', 1)),
+  // Approach cone of the aircraft: row 0 = scale, row 1 = us now (arrow) and after the time to arrival (crosshair)
+  OSD_ADSB_CONE: () => row('-10-------0-------+10').concat([{dx:11, dy:1, ch:S.ARROW}, {dx:14, dy:1, ch:S.CROSS}]),
 };
 
 function itemName(item){ return OSD_ITEMS[item] || `ITEM_${item}`; }
@@ -377,15 +453,33 @@ function readDims(){
   else { const [c,r] = p.split(','); COLS = +c; ROWS = +r; }
 }
 
+// Reads "osd_layout <layout> <item> <col> <row> [V|H]" (src/main/fc/cli.c) wherever it appears, so a copied diff
+// still parses with CRLF, tabs or non-breaking spaces, invisible characters or commands joined on one line.
+// Lines commented out ("# osd_layout ...") are skipped.
 function parseCLI(text){
-  const re = /^\s*osd_layout\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+([VH])\s*$/gim;
+  const clean = text.replace(/[\u200B-\u200D\u2060\uFEFF]/g, '').replace(/\r\n?/g, '\n');
+  const SP = '[ \\t\\u00A0]+';
+  const re = new RegExp(`\\bosd_layout${SP}(\\d+)${SP}(\\d+)${SP}(\\d+)${SP}(\\d+)(?:${SP}([VH])\\b)?`, 'gi');
   const found = new Map(); let m; let skipped = 0;
-  while ((m = re.exec(text)) !== null){
+  while ((m = re.exec(clean)) !== null){
+    const lineStart = clean.lastIndexOf('\n', m.index) + 1;
+    if (/^\s*#\s*$/.test(clean.slice(lineStart, m.index))) continue;
     const layout = +m[1], item = +m[2], x = +m[3], y = +m[4];
     if (layout >= LAYOUT_COUNT || x > POS_MAX || y > POS_MAX) { skipped++; continue; }
-    found.set(`${layout}:${item}`, { layout, item, x, y, visible: m[5].toUpperCase()==='V' });
+    const key = `${layout}:${item}`;
+    // Without V/H the firmware keeps the current visibility; here that is the last one seen, or visible
+    const visible = m[5] ? m[5].toUpperCase()==='V' : (found.has(key) ? found.get(key).visible : true);
+    found.set(key, { layout, item, x, y, visible });
   }
-  if (!found.size) { alert("No osd_layout lines found in the pasted text."); return; }
+  if (!found.size) {
+    const betaflight = (clean.match(/\bosd_\w+_pos\s*=/gi) || []).length;
+    const osdLine = clean.split('\n').map(l=>l.trim()).find(l=>/osd/i.test(l) && !l.startsWith('#'));
+    let message = "No osd_layout lines found in the pasted text.";
+    if (betaflight) message += `\nIt has ${betaflight} "set osd_..._pos" lines, which come from Betaflight: this tool reads INAV diffs.`;
+    else if (osdLine) message += "\nFirst line mentioning osd, which is not in the expected format:\n" + osdLine.slice(0, 160);
+    alert(message);
+    return;
+  }
   entries = [...found.values()]; selected = null;
   const unknown = entries.filter(e=>e.item>=OSD_ITEMS.length).length;
   if (unknown) alert(`${unknown} line(s) use item numbers this tool does not know: the firmware is newer than the table (run update-osd-items.py).`);
@@ -512,10 +606,10 @@ function buildPreview(){
   const rows = [
     ['Critical warning #169', 'AIRCRAFT APPROACHING 45S'],
     ['Cone #170, scale',      '-10-------0-------+10'],
-    ['— now + projected',     '           '+GR+'  '+GC+'      '],
+    ['— now + projected',     '           '+S.ARROW+'  '+S.CROSS+'      '],
     ['— heading not valid',   '           H         '],
-    ['— projection outside',  '       '+GR+'            >'],
-    ['Status #171',           GX+'5/2'],
+    ['— projection outside',  '       '+S.ARROW+'            >'],
+    ['Status #171',           S.RADAR+'5/2'],
   ];
   $('preview').innerHTML = rows.map(([lbl,val])=>
     `<div class="pv"><span class="lbl">${lbl}</span><span class="val">${cell(val)}</span></div>`).join('');
