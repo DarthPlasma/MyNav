@@ -2,9 +2,10 @@
 """
 MyNAV build tool.
 
-A small local web page to build the firmware for the project's targets: pick a target, build,
-download the .hex. INAV has no per-feature build options (ADS-B is on for every GPS target), so
-there is nothing else to choose. It drives CMake in <repo>/build, configuring it on first use.
+A small local web page to build the firmware: pick a target, build, download the .hex. Every target
+defined under src/main/target can be chosen, with the MyTAflight boards listed first; only the chosen
+one is built. INAV has no per-feature build options (ADS-B is on for every GPS target), so there is
+nothing else to choose. It drives CMake in <repo>/build, configuring it on first use.
 
 Run:  python3 mynav-tools/build-tool.py [--toolchain-bin DIR]    then open http://localhost:8792
 
@@ -18,6 +19,7 @@ import glob
 import json
 import os
 import re
+import shutil
 import subprocess
 import http.server
 
@@ -26,19 +28,19 @@ BUILD_DIR = os.path.join(REPO, "build")
 PORT = 8792
 TIMEOUT_S = 1800
 
-# The MyTAflight targets that exist in INAV under the same name (KAKUTEH7 also covers the Kakute H7 V1.3),
-# then the MyTAflight boards matched pin by pin against their Betaflight configs.
-TARGETS = ["DAKEFPVH743", "TMOTORVELOXF7V2", "KAKUTEH7", "MAMBAH743", "MAMBAH743_2022B",
-           "IFLIGHT_BLITZ_H7_PRO", "MATEKH743", "SPEEDYBEEF405V4", "FLYWOOH743PRO", "GEPRC_TAKER_H743",
-           "GEPRCF745_BT_HD", "KAKUTEF7", "FLYWOOF411", "SPEEDYBEEF405V3", "SPEEDYBEEF405MINI",
-           "SPEEDYBEEF7V3", "ZEEZF7", "ZEEZF7V2", "ZEEZF7V3", "IFLIGHT_BLITZ_F7_PRO",
-           "IFLIGHT_BLITZ_F7_AIO", "IFLIGHT_BLITZ_F722", "IFLIGHT_H743_AIO_V2",
-           "SPEEDYBEEF745AIO",    # Betaflight SPEEDYBEE_F745_AIO: the same board
-           "FLYWOOF722PRO",       # Betaflight FLYWOOF722PROV2: INAV's target already has the V2 gyro
-           "FOXEERF745AIO",       # Betaflight FOXEERF745V4_AIO
-           "SPEEDYBEEF405AIOV2",  # MyNAV variant of SPEEDYBEEF405AIO
-           "FLYWOOF745AIOV2",     # MyNAV variant of FLYWOOF745 (Explorer LR 4" V2 HD)
-           "TMOTORF7_AIO"]        # MyNAV variant of TMOTORF7
+# Listed first: the MyTAflight targets that exist in INAV under the same name (KAKUTEH7 also covers the
+# Kakute H7 V1.3), then the MyTAflight boards matched pin by pin against their Betaflight configs.
+MY_TARGETS = ["DAKEFPVH743", "TMOTORVELOXF7V2", "KAKUTEH7", "MAMBAH743", "MAMBAH743_2022B",
+              "IFLIGHT_BLITZ_H7_PRO", "MATEKH743", "SPEEDYBEEF405V4", "FLYWOOH743PRO", "GEPRC_TAKER_H743",
+              "GEPRCF745_BT_HD", "KAKUTEF7", "FLYWOOF411", "SPEEDYBEEF405V3", "SPEEDYBEEF405MINI",
+              "SPEEDYBEEF7V3", "ZEEZF7", "ZEEZF7V2", "ZEEZF7V3", "IFLIGHT_BLITZ_F7_PRO",
+              "IFLIGHT_BLITZ_F7_AIO", "IFLIGHT_BLITZ_F722", "IFLIGHT_H743_AIO_V2",
+              "SPEEDYBEEF745AIO",    # Betaflight SPEEDYBEE_F745_AIO: the same board
+              "FLYWOOF722PRO",       # Betaflight FLYWOOF722PROV2: INAV's target already has the V2 gyro
+              "FOXEERF745AIO",       # Betaflight FOXEERF745V4_AIO
+              "SPEEDYBEEF405AIOV2",  # MyNAV variant of SPEEDYBEEF405AIO
+              "FLYWOOF745AIOV2",     # MyNAV variant of FLYWOOF745 (Explorer LR 4" V2 HD)
+              "TMOTORF7_AIO"]        # MyNAV variant of TMOTORF7
 
 # "FLASH1:  654319 B  1792 KB  35.66%" from the linker's --print-memory-usage
 MEMORY_REGION = re.compile(r"^\s*(FLASH\w*):\s+([\d.]+)\s*(B|KB|MB)\s+([\d.]+)\s*(B|KB|MB)\s+([\d.]+)%", re.M)
@@ -46,16 +48,22 @@ UNITS = {"B": 1, "KB": 1024, "MB": 1024 * 1024}
 
 
 def defined_targets():
-    names = set()
+    """Every target in src/main/target, mapped to whether INAV publishes it in releases."""
+    targets = {}
     for path in glob.glob(os.path.join(REPO, "src", "main", "target", "*", "CMakeLists.txt")):
         with open(path) as f:
-            names.update(re.findall(r"^\s*target_\w+\(\s*(\w+)", f.read(), flags=re.M))
-    return names
+            for name, args in re.findall(r"^\s*target_\w+\(\s*(\w+)([^)]*)\)", f.read(), flags=re.M):
+                targets[name] = "SKIP_RELEASES" not in args
+    return targets
 
 
 def cmake_command():
     venv_cmake = os.path.join(REPO, "tools", "cmake-venv", "bin", "cmake")
     return venv_cmake if os.path.isfile(venv_cmake) else "cmake"
+
+
+def free_disk_gb():
+    return round(shutil.disk_usage(REPO).free / 1e9, 1)
 
 
 def flash_usage(log):
@@ -75,8 +83,8 @@ def find_hex(target):
     return os.path.basename(max(hexes, key=os.path.getmtime)) if hexes else ""
 
 
-def run_build(target, toolchain_bin):
-    if target not in TARGETS:
+def run_build(target, toolchain_bin, known_targets):
+    if target not in known_targets:
         return {"ok": False, "cmd": "", "log": "Unknown target."}
 
     cmake = cmake_command()
@@ -119,8 +127,9 @@ PAGE = r"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
  main{max-width:900px;margin:0 auto;padding:16px}
  .panel{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px;margin-bottom:16px}
  h2{margin:0 0 10px;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
- label{font-size:13px} select{background:#0c0f15;color:var(--fg);border:1px solid var(--line);border-radius:5px;padding:6px 8px;font:inherit}
- .row{display:flex;gap:16px;align-items:center;flex-wrap:wrap}
+ label{font-size:13px} select,input{background:#0c0f15;color:var(--fg);border:1px solid var(--line);border-radius:5px;padding:6px 8px;font:inherit}
+ select{min-width:320px}
+ .row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
  .muted{color:var(--muted);font-size:12px}
  button{background:var(--accent);color:#04101f;border:0;border-radius:6px;padding:9px 16px;font-weight:700;cursor:pointer;font:inherit}
  button:disabled{opacity:.5;cursor:default}
@@ -130,13 +139,15 @@ PAGE = r"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
  .pill.ok{background:rgba(58,210,159,.15);color:var(--ok)} .pill.err{background:rgba(255,93,93,.15);color:var(--err)}
  a.dl{color:var(--ok);font-weight:700}
 </style></head><body>
-<header><h1>MyNAV — Build Tool</h1><p>Pick a target, build, download the <code>.hex</code>. Runs CMake in <code>build/</code> (configured on first use).</p></header>
+<header><h1>MyNAV — Build Tool</h1><p>Pick a target, build, download the <code>.hex</code>. Only the chosen target is built, with CMake in <code>build/</code> (configured on first use).</p></header>
 <main>
  <div class="panel">
    <div class="row">
-     <label>Target <select id="target"></select></label>
+     <input id="filter" type="search" placeholder="Search targets" autocomplete="off">
+     <select id="target"></select>
      <button id="buildBtn">Build firmware</button>
    </div>
+   <p class="muted"><span id="count"></span> · "not in releases" targets are not published by INAV and may not build · <span id="disk"></span></p>
    <p class="muted" id="toolchain"></p>
  </div>
 
@@ -150,12 +161,30 @@ PAGE = r"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
 <script>
 const INFO = __INFO__;
 const $=id=>document.getElementById(id);
-$("target").innerHTML = INFO.targets.map(t=>`<option>${t}</option>`).join("");
+const inReleases = Object.fromEntries(INFO.targets);
+const others = INFO.targets.map(t => t[0]).filter(name => !INFO.mine.includes(name));
+let building = false;
+
+function fillTargets(){
+  const query = $("filter").value.trim().toUpperCase();
+  const keep = $("target").value;
+  const matches = name => !query || name.includes(query);
+  const option = name => `<option value="${name}">${name}${inReleases[name] ? "" : "  (not in releases)"}</option>`;
+  const group = (label, names) => names.length ? `<optgroup label="${label} (${names.length})">${names.map(option).join("")}</optgroup>` : "";
+  const mine = INFO.mine.filter(matches), rest = others.filter(matches);
+  $("target").innerHTML = group("Your boards", mine) + group("All INAV targets", rest);
+  if ([...$("target").options].some(o => o.value === keep)) $("target").value = keep;
+  $("count").textContent = `${mine.length + rest.length} of ${INFO.targets.length} targets`;
+  $("buildBtn").disabled = building || !$("target").options.length;
+}
+$("filter").addEventListener("input", fillTargets);
+fillTargets();
+$("disk").textContent = `free disk ${INFO.free_gb} GB`;
 $("toolchain").textContent = "cmake: " + INFO.cmake + " · toolchain: " + (INFO.toolchain || "INAV's own (tools/ or PATH)");
 
 $("buildBtn").onclick = async () => {
-  const btn = $("buildBtn"); btn.disabled = true; btn.textContent = "Building…";
-  $("resultPanel").style.display = "block"; $("status").className="pill"; $("status").textContent="running";
+  const btn = $("buildBtn"); building = true; btn.disabled = true; btn.textContent = "Building…";
+  $("resultPanel").style.display = "block"; $("status").className="pill"; $("status").textContent="running " + $("target").value;
   $("flash").textContent=""; $("dl").innerHTML="";
   $("log").textContent="Building, please wait (the first build of a target takes a few minutes)…";
   try {
@@ -166,13 +195,17 @@ $("buildBtn").onclick = async () => {
     $("flash").textContent = d.flash ? ("flash " + d.flash) : "";
     $("log").textContent = (d.cmd ? d.cmd + "\n\n" : "") + d.log;
     $("dl").innerHTML = (d.ok && d.hex) ? `<a class="dl" href="/hex/${encodeURIComponent(d.hex)}" download>⤓ ${d.hex}</a>` : "";
+    if (d.free_gb !== undefined) $("disk").textContent = `free disk ${d.free_gb} GB`;
   } catch(e){ $("status").className="pill err"; $("status").textContent="error"; $("log").textContent=String(e); }
-  btn.disabled=false; btn.textContent="Build firmware";
+  building = false; btn.textContent = "Build firmware"; fillTargets();
 };
 </script></body></html>"""
 
 
-def make_handler(toolchain_bin):
+def make_handler(toolchain_bin, targets):
+    mine = [name for name in MY_TARGETS if name in targets]
+    info = {"mine": mine, "targets": sorted(targets.items()), "cmake": cmake_command(), "toolchain": toolchain_bin}
+
     class Handler(http.server.BaseHTTPRequestHandler):
         def log_message(self, *a):
             pass
@@ -187,8 +220,8 @@ def make_handler(toolchain_bin):
 
         def do_GET(self):
             if self.path == "/" or self.path.startswith("/index"):
-                info = {"targets": TARGETS, "cmake": cmake_command(), "toolchain": toolchain_bin}
-                self._send(200, PAGE.replace("__INFO__", json.dumps(info)))
+                page_info = dict(info, free_gb=free_disk_gb())
+                self._send(200, PAGE.replace("__INFO__", json.dumps(page_info)))
             elif self.path.startswith("/hex/"):
                 name = os.path.basename(self.path[len("/hex/"):])
                 path = os.path.join(BUILD_DIR, name)
@@ -210,7 +243,9 @@ def make_handler(toolchain_bin):
                 req = json.loads(self.rfile.read(length) or b"{}")
             except ValueError:
                 req = {}
-            self._send(200, json.dumps(run_build(req.get("target", ""), toolchain_bin)), "application/json")
+            result = run_build(req.get("target", ""), toolchain_bin, targets)
+            result["free_gb"] = free_disk_gb()
+            self._send(200, json.dumps(result), "application/json")
 
     return Handler
 
@@ -222,13 +257,14 @@ def main():
     parser.add_argument("--port", type=int, default=PORT)
     args = parser.parse_args()
 
-    missing = sorted(set(TARGETS) - defined_targets())
+    targets = defined_targets()
+    missing = [name for name in MY_TARGETS if name not in targets]
     if missing:
         print("Warning, not defined in src/main/target: " + ", ".join(missing))
 
-    print("MyNAV build tool — repo: " + REPO)
+    print("MyNAV build tool — repo: %s, %d targets" % (REPO, len(targets)))
     print("Open http://localhost:%d" % args.port)
-    http.server.HTTPServer(("127.0.0.1", args.port), make_handler(args.toolchain_bin)).serve_forever()
+    http.server.HTTPServer(("127.0.0.1", args.port), make_handler(args.toolchain_bin, targets)).serve_forever()
 
 
 if __name__ == "__main__":

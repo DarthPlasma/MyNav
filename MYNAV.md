@@ -37,9 +37,9 @@ INAV la configurazione OSD e i layout tornano ai default. Salvare il `diff` prim
 
 ## Target delle schede MyTAflight
 
-Il build tool elenca i 23 target che INAV ha con lo stesso nome di MyTAflight (KAKUTEH7 copre anche la Kakute H7 V1.3)
-più le schede qui sotto, abbinate confrontando con le config Betaflight pin, sensori, bus SPI, ingressi ADC e
-orientamento del gyro.
+Il build tool propone tutti i target INAV, ma mette in cima le schede MyTAflight: i 23 target che INAV ha con lo
+stesso nome (KAKUTEH7 copre anche la Kakute H7 V1.3) più le schede qui sotto, abbinate confrontando con le config
+Betaflight pin, sensori, bus SPI, ingressi ADC e orientamento del gyro.
 
 | Scheda (nome Betaflight) | Target | Note |
 | --- | --- | --- |
