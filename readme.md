@@ -1,3 +1,137 @@
+# MyNAV
+
+MyNAV is a **personal fork of [INAV](https://github.com/iNavFlight/inav)** that adds an **advanced ADS-B traffic display**: it picks the aircraft that is actually coming at you and shows whether your own motion is taking you out of its way. It ports to INAV the ADS-B work done in [MyTAflight](https://github.com/DarthPlasma/MytaFlight), a Betaflight fork, on top of INAV's own ADS-B support.
+
+- **Base:** INAV **`9.1.0`** · **Licence:** GPLv3
+- **Branch:** `feature/adsb-cone`
+- **Documentation:** [docs/ADSB.md](docs/ADSB.md#mynav-critical-approach-warning-and-approach-cone) for pilots, [MYNAV.md](MYNAV.md) for the implementation, decisions and build notes
+- **Status:** builds and passes its unit tests, **not yet validated in flight**. Unofficial firmware: fly it at your own risk.
+
+## What's added
+
+| Feature | Details |
+| --- | --- |
+| Threat detection | Picks the aircraft on a collision course: approach cone, time to arrival and range limits |
+| `OSD_ADSB_CRITICAL_WARNING` | A steady `AIRCRAFT APPROACHING 45S` |
+| `OSD_ADSB_CONE` | Two-row approach cone: where you are in the aircraft's cone now, and where your motion is taking you |
+| `OSD_ADSB_STATUS` | ADS-B symbol with aircraft received / within range, e.g. `5/2` |
+| More tracked aircraft | `adsb_max_vehicles` from 5 to 12 at runtime; traffic beyond 64 km is no longer dropped |
+| Extra targets | MyTAflight boards INAV lacks: see [Targets](#targets) |
+| Tools | OSD layout editor and build tool in [`mynav-tools/`](mynav-tools/) |
+
+Everything else is stock INAV 9.1.0: INAV's own `OSD_ADSB_WARNING` and `OSD_ADSB_INFO` elements keep working as before.
+
+> **Flashing MyNAV over INAV resets the OSD settings and layouts**, because their parameter group versions changed. Save a `diff` first and paste it back afterwards.
+
+## Requirements
+
+- A MAVLink ADS-B receiver (TT-SC1, ADSBee 1090, pingRX, SoftRF...) on a UART set to MAVLink telemetry, as described in [docs/ADSB.md](docs/ADSB.md).
+- A GPS fix with more than 4 satellites: distance and direction to the traffic come from your own position.
+
+## Threat detection
+
+An aircraft is a **critical threat** when all of these are true:
+
+1. **In range:** it is within `osd_adsb_distance_warning` and, when `osd_adsb_ignore_plane_above_me_limit` is not 0, no higher than that above you. Traffic below you always counts.
+2. **Reliable data:** it reports a valid heading and ground speed.
+3. **Pointing at you:** its course is within ± half of `osd_adsb_detection_cone` from the direction towards you. With the default 20°, it must point at you within ±10°.
+4. **Close in time:** its time to arrival, distance ÷ its ground speed, is at most `osd_adsb_aircraft_toa` seconds.
+
+When several aircraft qualify, the one arriving **first** is shown. The critical warning and the cone disappear as soon as no aircraft qualifies.
+
+| CLI setting | Default | Meaning |
+| --- | --- | --- |
+| `osd_adsb_detection_cone` | `20` | Full width of the approach cone in degrees (2–180); also the scale of the cone element |
+| `osd_adsb_aircraft_toa` | `60` | Time to arrival limit in seconds (1–600) |
+| `osd_adsb_distance_warning` | `20000` | Range limit in metres (stock INAV setting) |
+| `osd_adsb_ignore_plane_above_me_limit` | `0` | Ignore traffic higher than this above you, in metres; 0 = off (stock INAV setting) |
+| `adsb_max_vehicles` | `5` | Aircraft tracked at the same time (5–12) |
+
+## The approach cone
+
+The cone belongs to the **incoming aircraft**: its tip is the aircraft where it is now, its axis is the aircraft's course. The element shows **you** inside that cone, as seen while you face the aircraft coming at you.
+
+```
+-10-------0-------+10      scale: ± half of osd_adsb_detection_cone, in degrees
+        ▲    +             ▲ = you now       + = you after the time to arrival
+```
+
+**Row 1** is the scale. With the default 20° cone every column is one degree, and `0` is the aircraft's course line.
+
+**The arrow** is where you are **now**: in the centre you are right on the aircraft's path. It points the way you are moving compared to the aircraft:
+
+- **▲** head-on, flying towards it
+- **▼** same direction, it is catching up with you
+- **◄ / ►** crossing its path towards that side
+
+It becomes **`H`** while your heading is not valid yet (no compass and no GPS course): the position is still right, only the direction is unknown.
+
+**The crosshair** is where **your own motion** takes you **after the time to arrival**, in the same, current cone: the aircraft is not moved forward. It is hidden when it falls on the arrow, or while your heading is not valid.
+
+- Hovering, or flying straight at the aircraft: the crosshair stays on the arrow.
+- Sidestepping: it moves to that side, more the faster you go and the closer the aircraft is. Head-on at 3 km with 60 s to arrival, dodging right at 5 m/s puts it about 6° right.
+- When that position is outside the cone, an **arrow on the edge** points to the side you are leaving by.
+
+**Reading it:** the gap between arrow and crosshair is the trend. A crosshair moving towards the centre means things are getting worse; moving away or off the edge means they are resolving. As the aircraft gets closer the same distance from its path becomes a wider angle, so unless you are right under it your position slides towards the edge until you leave the cone and the elements disappear.
+
+The cone is 21 columns wide: on 30-column analog OSDs place it at column 9 or less.
+
+## Placing the elements
+
+The INAV Configurator does not know the new elements. Place them from the CLI with `osd_layout <layout> <item> <column> <row> V`:
+
+```
+osd_layout 0 169 14 13 V    # OSD_ADSB_CRITICAL_WARNING
+osd_layout 0 170 16 5 V     # OSD_ADSB_CONE
+osd_layout 0 171 1 12 V     # OSD_ADSB_STATUS
+save
+```
+
+Or visually with the [OSD layout tool](mynav-tools/osd-layout.html): open it in a browser, paste a `diff`, move the elements (each one shows an example value) and copy the `osd_layout` lines back into the CLI.
+
+## Testing on the bench
+
+Widen the limits so a simulated aircraft triggers easily, and restore them afterwards:
+
+```
+set osd_adsb_distance_warning = 64000
+set osd_adsb_ignore_plane_above_me_limit = 0
+set osd_adsb_aircraft_toa = 600
+set osd_adsb_detection_cone = 180
+save
+```
+
+Simulated traffic can come from the ESP32 ADS-B injector in [MyTAflight](https://github.com/DarthPlasma/MytaFlight) (`mytaflight-tools/adsb-injector/` on the `integration` branch): it streams MAVLink `ADSB_VEHICLE` frames for up to 5 aircraft set from a web page.
+
+## Targets
+
+Besides every INAV target, MyNAV builds these MyTAflight boards that INAV does not have under the same name:
+
+| Board (Betaflight name) | MyNAV target | Notes |
+| --- | --- | --- |
+| SPEEDYBEE_F745_AIO | `SPEEDYBEEF745AIO` | Same board |
+| FLYWOOF722PROV2 | `FLYWOOF722PRO` | INAV's target already has the V2 gyro |
+| FOXEERF745V4_AIO | `FOXEERF745AIO` | DPS310 baro added |
+| SPEEDYBEEF405AIOV2 | `SPEEDYBEEF405AIOV2` | Gyro orientation, current scale, 9V BEC switch on the USER1 mode |
+| FLYWOOF745AIOV2 | `FLYWOOF745AIOV2` | Gyro orientation |
+| TMOTORF7_AIO | `TMOTORF7_AIO` | MPU6500-family gyro, baro on SPI |
+
+These were matched pin by pin against the Betaflight configurations and they build, but none has been flown yet: check the board orientation in the Configurator's Setup tab before the first flight.
+
+## Building
+
+```bash
+mkdir -p build && cd build
+cmake .. -DCMAKE_BUILD_TYPE=Release
+make DAKEFPVH743
+```
+
+Or run `python3 mynav-tools/build-tool.py` and open http://localhost:8792 for a target menu with `.hex` download. [MYNAV.md](MYNAV.md) has the toolchain notes.
+
+---
+
+*The original INAV README follows.*
+
 # INAV - navigation capable flight controller
 
 # F411 PSA
